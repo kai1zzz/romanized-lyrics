@@ -20,6 +20,23 @@ Ejemplos:
 | 감사합니다 / 많이 보고 싶어 | gamsahamnida / mani bogo sipeo |
 | 月亮代表我的心 | yuè liàng dài biǎo wǒ de xīn |
 
+# DJ para TidaLuna
+
+Segundo plugin de esta tienda (`plugins/DJ`), **@kai1zzz/dj**: un DJ personal.
+
+- Cuando a la cola le quedan pocas canciones, añade al final canciones parecidas a la última de la cola, usando las *canciones similares* y la *radio de canción* de Tidal. No repite lo que ya sonó en la sesión.
+- Presenta con voz las canciones que elige («Si te gustó X, esta te va a encantar: Y, de Z»), con una voz de Windows, bajando un poco la música mientras habla.
+- Ajustes: activar/desactivar, cuántas canciones mantener por delante, voz on/off, qué voz, presentar todas las canciones, volumen de la música mientras habla.
+- No hace nada con la repetición activada (la cola ya se repite sola).
+
+## Instalar desde la tienda
+
+En TidaLuna → **Plugin Store**, añade la tienda:
+
+```
+https://github.com/kai1zzz/romanized-lyrics/releases/download/latest/store.json
+```
+
 ## Instalación (modo desarrollo)
 
 1. Instala TidaLuna (instalador en las releases de https://github.com/Inrixia/TidaLuna).

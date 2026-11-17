@@ -1,0 +1,46 @@
+import { redux, TidalApi } from "@luna/lib";
+
+const countryCode = () => redux.store.getState().session.countryCode;
+
+const getJson = async <T>(url: string, accept = "application/json"): Promise<T> => {
+	const res = await fetch(url, { headers: { ...(await TidalApi.getAuthHeaders()), Accept: accept } });
+	if (!res.ok) throw new Error(`${res.status} ${res.statusText} ${url}`);
+	return res.json() as Promise<T>;
+};
+
+/** "Similar tracks" from Tidal's OpenAPI (the same endpoint the app uses for its similar-tracks list) */
+const similarTracks = async (trackId: redux.ItemId): Promise<string[]> => {
+	const json = await getJson<{ data?: { id: string; type: string }[] }>(
+		`https://openapi.tidal.com/v2/tracks/${trackId}/relationships/similarTracks?countryCode=${countryCode()}`,
+		"application/vnd.api+json",
+	);
+	return json.data?.filter((d) => d.type === "tracks").map((d) => String(d.id)) ?? [];
+};
+
+/** Track radio from the classic v1 API ("Go to track radio") */
+const trackRadio = async (trackId: redux.ItemId): Promise<string[]> => {
+	const json = await getJson<{ items?: { id: number | string }[] }>(`https://desktop.tidal.com/v1/tracks/${trackId}/radio?limit=50&${TidalApi.queryArgs()}`);
+	return json.items?.map((i) => String(i.id)) ?? [];
+};
+
+export type Recommendations = { ids: string[]; errors: string[] };
+
+/** Recommendations for a track, interleaving both sources (so if one fails the other still works) */
+export const recommendations = async (trackId: redux.ItemId): Promise<Recommendations> => {
+	const results = await Promise.allSettled([similarTracks(trackId), trackRadio(trackId)]);
+	const lists = results.map((r) => (r.status === "fulfilled" ? r.value : []));
+	const errors = results.flatMap((r) => (r.status === "rejected" ? [String(r.reason)] : []));
+
+	const ids: string[] = [];
+	const seen = new Set<string>([String(trackId)]);
+	for (let i = 0; i < Math.max(...lists.map((l) => l.length)); i++) {
+		for (const list of lists) {
+			const id = list[i];
+			if (id !== undefined && !seen.has(id)) {
+				seen.add(id);
+				ids.push(id);
+			}
+		}
+	}
+	return { ids, errors };
+};

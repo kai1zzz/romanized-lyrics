@@ -1,0 +1,11 @@
+{
+	"name": "@kai1zzz/dj",
+	"description": "DJ personal: cuando se acaba la cola, sigue añadiendo canciones parecidas a lo que suena y las presenta con voz",
+	"author": {
+		"name": "kai1zzz",
+		"url": "https://github.com/kai1zzz"
+	},
+	"homepage": "https://github.com/kai1zzz/romanized-lyrics",
+	"main": "./src/index.ts",
+	"type": "module"
+}

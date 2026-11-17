@@ -517,7 +517,7 @@ packages:
     engines: {node: 20 || >=22}
 
   luna@https://codeload.github.com/Inrixia/TidaLuna/tar.gz/12b5dd7ce7c1512eb7a9418041bb1e5b0c0627da:
-    resolution: {gitHosted: true, tarball: https://codeload.github.com/Inrixia/TidaLuna/tar.gz/12b5dd7ce7c1512eb7a9418041bb1e5b0c0627da}
+    resolution: {gitHosted: true, integrity: sha512-PIBYSE397smjYFeumSx9iqoYSxHSgwq9WRXbonHx/fUsG7BFTm28yfffWZZuVAWMA5ntU93Hrmu4QhmRMrKOxg==, tarball: https://codeload.github.com/Inrixia/TidaLuna/tar.gz/12b5dd7ce7c1512eb7a9418041bb1e5b0c0627da}
     version: 1.20.3-beta
 
   math-intrinsics@1.1.0:

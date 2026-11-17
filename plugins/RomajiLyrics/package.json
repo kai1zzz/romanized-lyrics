@@ -1,11 +1,11 @@
 {
 	"name": "@kai1zzz/romanized-lyrics",
-	"description": "Romaji para letras japonesas, romanización para coreanas y pinyin para chinas (debajo de cada línea o solo romanización)",
+	"description": "Romaji para letras japonesas, romanización para coreanas y pinyin para chinas (original + romanización o solo romanización)",
 	"author": {
 		"name": "kai1zzz",
 		"url": "https://github.com/kai1zzz"
 	},
-	"homepage": "https://github.com/kai1zzz/tidal-romaji-lyrics",
+	"homepage": "https://github.com/kai1zzz/romanized-lyrics",
 	"main": "./src/index.ts",
 	"type": "module",
 	"dependencies": {

@@ -18,8 +18,8 @@ export const Settings = () => {
 	return (
 		<LunaSettings>
 			<LunaSelectSetting
-				title="Modo"
-				desc="Japonés → romaji, coreano → romanización revisada, chino → pinyin. «Debajo» la añade bajo cada línea original; «Solo romanización» oculta el original y deja solo la letra romanizada."
+				title="Cómo mostrar la letra"
+				desc="Japonés → romaji, coreano → romanización revisada, chino → pinyin. «Original + romanización» añade la romanización en pequeño bajo cada línea; «Solo romanización» oculta la letra original."
 				value={mode}
 				onChange={(e: { target: { value: unknown } }) => {
 					const next = e.target.value as RomajiMode;
@@ -27,7 +27,7 @@ export const Settings = () => {
 					applyMode();
 				}}
 			>
-				<LunaSelectItem value="below">Debajo del original</LunaSelectItem>
+				<LunaSelectItem value="below">Original + romanización</LunaSelectItem>
 				<LunaSelectItem value="replace">Solo romanización</LunaSelectItem>
 			</LunaSelectSetting>
 			<LunaSwitchSetting

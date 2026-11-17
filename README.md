@@ -6,10 +6,10 @@ Plugin de [TidaLuna](https://github.com/Inrixia/TidaLuna) que romaniza las letra
 - **Coreano → romanización revisada**, con las reglas de pronunciación habituales (enlace, nasalización, ㄹ, aspiración).
 - **Chino → pinyin** con tonos, con [pinyin-pro](https://github.com/zh-lx/pinyin-pro) (resuelve caracteres con varias lecturas por contexto).
 
-Modos (ajustes del plugin):
+Ajuste «Cómo mostrar la letra»:
 
-- **Debajo del original** (por defecto): cada línea muestra su romanización en pequeño justo debajo.
-- **Solo romanización**: la letra entera (también la sincronizada) se reemplaza por la romanización.
+- **Original + romanización** (por defecto): cada línea muestra su romanización en pequeño justo debajo.
+- **Solo romanización**: la letra original se oculta y queda solo la romanizada, a tamaño normal.
 
 Ejemplos:
 
@@ -51,12 +51,12 @@ Mientras `watch` esté corriendo, cualquier cambio en `plugins/RomajiLyrics/src`
 - `src/ko.ts`: coreano → romanización revisada.
 - `src/zh.ts`: chino → pinyin.
 - `src/romaji.native.ts`: corre en el proceso principal (Node) de Tidal; descarga/cachea el diccionario japonés y reparte cada línea a su conversor.
-- `src/index.ts`: pide la letra de la canción actual, la convierte y, en la vista de letras, añade la romanización bajo cada línea (modo debajo) o cambia el texto de la línea por ella (modo solo romanización).
+- `src/index.ts`: pide la letra de la canción actual, la convierte y, en la vista de letras, añade la romanización bajo cada línea (modo «Original + romanización») o cambia el texto de la línea por ella (modo «Solo romanización»).
 - `src/Settings.tsx`: selector de modo.
 
 ### Limitaciones
 
 - Las lecturas de kanji no son perfectas (nombres propios, lecturas artísticas tipo 本気 → "maji"). Se pueden añadir correcciones en `READING_OVERRIDES` (`src/ja.ts`).
 - El coreano sigue la romanización revisada oficial, que no marca la tensión de consonantes (없어 → eopseo, no "eopsseo").
-- El modo "debajo" busca en pantalla el texto exacto de cada línea; si Tidal parte las líneas palabra a palabra, no las encontrará (usa "solo romanización").
+- El modo «Original + romanización» busca en pantalla el texto exacto de cada línea; si Tidal parte las líneas palabra a palabra, no las encontrará (usa «Solo romanización»).
 - Las actualizaciones de Tidal/TidaLuna pueden romperlo (y al actualizarse Tidal hay que reinstalar TidaLuna).

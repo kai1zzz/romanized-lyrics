@@ -23,6 +23,15 @@ const trackRadio = async (trackId: redux.ItemId): Promise<string[]> => {
 	return json.items?.map((i) => String(i.id)) ?? [];
 };
 
+/** The user's most recently favourited tracks (used to start a DJ session when nothing is playing) */
+export const favoriteTracks = async (): Promise<string[]> => {
+	const userId = redux.store.getState().session.userId;
+	const json = await getJson<{ items?: { item?: { id: number | string } }[] }>(
+		`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks?limit=100&order=DATE&orderDirection=DESC&${TidalApi.queryArgs()}`,
+	);
+	return json.items?.flatMap((i) => (i.item?.id !== undefined ? [String(i.item.id)] : [])) ?? [];
+};
+
 export type Recommendations = { ids: string[]; errors: string[] };
 
 /** Recommendations for a track, interleaving both sources (so if one fails the other still works) */

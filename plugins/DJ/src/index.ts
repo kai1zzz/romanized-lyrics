@@ -1,7 +1,8 @@
 import { type LunaUnload, Tracer } from "@luna/core";
 import { MediaItem, PlayState, redux } from "@luna/lib";
 
-import { recommendations } from "./api";
+import { favoriteTracks, recommendations } from "./api";
+import { mountButton } from "./button";
 import { DJ_INTRO, djHello, type TrackInfo, trackIntro } from "./lines";
 import { settings } from "./Settings";
 import { speak, stopSpeaking, type VoiceOptions } from "./voice";
@@ -43,43 +44,114 @@ const upcoming = () => {
 	return q.elements.length - q.currentIndex - 1;
 };
 
-let topping: Promise<void> | undefined;
-const topUp = () => (topping ??= doTopUp().finally(() => (topping = undefined)));
-
-const doTopUp = async () => {
-	if (!settings.enabled) return;
-	if (PlayState.repeatMode !== redux.RepeatMode.Off) return; // queue loops anyway
-	const missing = settings.ahead - upcoming();
-	if (missing <= 0) return;
-
-	// Chain from the last track in the queue so the picks flow like a radio
+/** How many DJ picks are lined up right after the current track */
+const djPicksAhead = () => {
 	const q = PlayState.playQueue;
-	const seedElement = q.elements.at(-1) ?? q.elements[q.currentIndex];
-	const seed = await MediaItem.fromId(seedElement?.mediaItemId);
-	if (seed === undefined) return;
+	let n = 0;
+	for (let i = q.currentIndex + 1; i < q.elements.length && djPicks.has(String(q.elements[i].mediaItemId)); i++) n++;
+	return n;
+};
 
+/** Up to `count` playable tracks similar to `seed` that haven't played and aren't queued */
+const findPicks = async (seed: MediaItem, count: number): Promise<MediaItem[]> => {
 	const { ids, errors } = await recommendations(seed.id);
 	if (errors.length > 0) trace.warn("Algunas fuentes de recomendaciones fallaron", errors);
 	if (ids.length === 0) {
 		trace.msg.warn(`El DJ no encontró canciones parecidas a "${seed.tidalItem.title}"`);
-		return;
+		return [];
 	}
-
-	const exclude = new Set([...history, ...q.elements.map((e: redux.PlayQueueElement) => String(e.mediaItemId))]);
+	const queued = PlayState.playQueue.elements.map((e: redux.PlayQueueElement) => String(e.mediaItemId));
+	const exclude = new Set([...history, ...queued]);
 	// Take from the most relevant ones, with a bit of randomness so it's not always the same order
-	const pool = ids.filter((id) => !exclude.has(id)).slice(0, Math.max(missing * 4, 12));
+	const pool = ids.filter((id) => !exclude.has(id)).slice(0, Math.max(count * 4, 12));
 	const picks: MediaItem[] = [];
-	while (picks.length < missing && pool.length > 0) {
+	while (picks.length < count && pool.length > 0) {
 		const [id] = pool.splice(Math.floor(Math.random() * Math.min(pool.length, 6)), 1);
 		const item = await MediaItem.fromId(id).catch(() => undefined);
 		if (item !== undefined && item.tidalItem.allowStreaming !== false) picks.push(item);
 	}
-	if (picks.length === 0) return;
-
 	const seedInfo = infoOf(seed);
 	for (const p of picks) djPicks.set(String(p.id), seedInfo);
+	return picks;
+};
+
+let topping: Promise<void> | undefined;
+const topUp = () => (topping ??= doTopUp().finally(() => (topping = undefined)));
+
+const doTopUp = async () => {
+	if (PlayState.repeatMode !== redux.RepeatMode.Off && !session) return; // queue loops anyway
+	const q = PlayState.playQueue;
+
+	if (session) {
+		// DJ Kai session: the DJ's picks go right after the current track, ahead of the rest of the queue
+		const ahead = djPicksAhead();
+		const missing = settings.ahead - ahead;
+		if (missing <= 0) return;
+		const seed = await MediaItem.fromId(q.elements[q.currentIndex + ahead]?.mediaItemId);
+		if (seed === undefined) return;
+		const picks = await findPicks(seed, missing);
+		if (picks.length === 0 || !session) return;
+		redux.actions["playQueue/ADD_NEXT"]({ context: { type: "UNKNOWN" }, mediaItemIds: picks.map((p) => p.id), offset: ahead });
+		return;
+	}
+
+	// Auto mode: only when the queue is about to run out, chaining from its last track
+	if (!settings.enabled) return;
+	const missing = settings.ahead - upcoming();
+	if (missing <= 0) return;
+	const seed = await MediaItem.fromId((q.elements.at(-1) ?? q.elements[q.currentIndex])?.mediaItemId);
+	if (seed === undefined) return;
+	const picks = await findPicks(seed, missing);
+	if (picks.length === 0) return;
 	redux.actions["playQueue/ADD_LAST"]({ context: { type: "UNKNOWN" }, mediaItemIds: picks.map((p) => p.id) });
-	trace.log(`Añadidas ${picks.length} canciones parecidas a "${seedInfo.title}"`);
+};
+
+// ---------------------------------------------------------------------------
+// DJ Kai session (the button in the player bar)
+// ---------------------------------------------------------------------------
+
+/** While on, the DJ keeps its own picks lined up next, instead of waiting for the queue to end */
+let session = false;
+const sessionListeners = new Set<(on: boolean) => void>();
+export const isSessionOn = () => session;
+export const onSessionChange = (cb: (on: boolean) => void) => {
+	sessionListeners.add(cb);
+	return () => sessionListeners.delete(cb);
+};
+const setSession = (on: boolean) => {
+	session = on;
+	sessionListeners.forEach((cb) => cb(on));
+};
+
+export const toggleSession = async () => {
+	if (session) {
+		setSession(false);
+		stopSpeaking();
+		if (settings.voice) say("Vale, te dejo con tu cola. ¡Hasta luego!");
+		return;
+	}
+	setSession(true);
+	introduced = true;
+
+	let current = await MediaItem.fromPlaybackContext().catch(() => undefined);
+	if (current === undefined || PlayState.playQueue.elements.length === 0) {
+		// Nothing playing: start from one of the user's recent favourites
+		const favs = await favoriteTracks().catch(() => []);
+		const id = favs[Math.floor(Math.random() * Math.min(favs.length, 30))];
+		if (id === undefined) {
+			setSession(false);
+			trace.msg.warn("Pon una canción (o marca alguna como favorita) para que DJ Kai sepa por dónde empezar.");
+			return;
+		}
+		current = await MediaItem.fromId(id);
+		if (current === undefined) return setSession(false);
+		if (settings.voice) say(`${DJ_INTRO} Empezamos con algo que te gusta.`);
+		PlayState.play(current.id);
+	} else if (settings.voice) {
+		const c = infoOf(current);
+		say(`${DJ_INTRO} Después de ${c.title}, sigo yo con música parecida.`);
+	}
+	await topUp().catch(trace.err.withContext("topUp"));
 };
 
 // ---------------------------------------------------------------------------
@@ -112,7 +184,7 @@ MediaItem.onMediaTransition(unloads, async (item) => {
 	history.add(id);
 
 	const seed = djPicks.get(id);
-	if (settings.enabled && settings.voice && (seed !== undefined || settings.announceAll)) {
+	if ((settings.enabled || session) && settings.voice && (seed !== undefined || settings.announceAll)) {
 		// The first time the DJ talks in a session it introduces itself
 		const intro = introduced ? "" : `${DJ_INTRO} `;
 		introduced = true;
@@ -135,6 +207,14 @@ export const onEnabledChange = async () => {
 	}
 	topUp().catch(trace.err.withContext("topUp"));
 };
+
+mountButton(unloads, {
+	isOn: isSessionOn,
+	onChange: onSessionChange,
+	onClick: () => {
+		toggleSession().catch(trace.msg.err.withContext("DJ Kai"));
+	},
+});
 
 // On load: remember the current track and fill the queue if needed
 const t = setTimeout(async () => {

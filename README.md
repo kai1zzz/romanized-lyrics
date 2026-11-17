@@ -24,7 +24,8 @@ Ejemplos:
 
 Segundo plugin de esta tienda (`plugins/DJ`), **@kai1zzz/dj**: un DJ personal.
 
-- Cuando a la cola le quedan pocas canciones, añade al final canciones parecidas a la última de la cola, usando las *canciones similares* y la *radio de canción* de Tidal. No repite lo que ya sonó en la sesión.
+- Botón **DJ Kai** en la barra del reproductor: al pulsarlo el DJ toma el control al momento y va poniendo sus elecciones justo después de la canción actual (si no suena nada, empieza con una de tus favoritas). Pulsa otra vez para devolverte tu cola.
+- Modo automático: cuando a la cola le quedan pocas canciones, añade al final canciones parecidas a la última de la cola, usando las *canciones similares* y la *radio de canción* de Tidal. No repite lo que ya sonó en la sesión.
 - Presenta con voz las canciones que elige («Si te gustó X, esta te va a encantar: Y, de Z»), con una voz de Windows, bajando un poco la música mientras habla.
 - Ajustes: activar/desactivar, cuántas canciones mantener por delante, voz on/off, qué voz, presentar todas las canciones, volumen de la música mientras habla.
 - No hace nada con la repetición activada (la cola ya se repite sola).

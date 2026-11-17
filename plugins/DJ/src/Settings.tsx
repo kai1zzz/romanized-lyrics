@@ -14,6 +14,7 @@ import {
 
 import { onEnabledChange, say } from ".";
 import { type AzureVoice, listVoices } from "./azure.native";
+import { DJ_INTRO } from "./lines";
 import { getVoices } from "./voice";
 
 export type VoiceEngine = "windows" | "azure";
@@ -153,7 +154,7 @@ export const Settings = () => {
 						value={azureVoices.some((v) => v.name === azureVoice) ? azureVoice : ""}
 						onChange={(e: Change) => {
 							setAzureVoice((settings.azureVoice = String(e.target.value)));
-							say("Soy tu DJ virtual personal. Así sueno yo.");
+							say(`${DJ_INTRO} Así sueno yo.`);
 						}}
 					>
 						{azureVoices.map((v) => (
@@ -166,7 +167,7 @@ export const Settings = () => {
 				</>
 			)}
 
-			<LunaButtonSetting title="Probar voz" desc="Reproduce una presentación de ejemplo con la voz elegida." onClick={() => say("Si te gustó esa, esta te va a encantar: Bohemian Rhapsody, de Queen.")}>
+			<LunaButtonSetting title="Probar voz" desc="Reproduce una presentación de ejemplo con la voz elegida." onClick={() => say(`${DJ_INTRO} Si te gustó esa, esta te va a encantar: Bohemian Rhapsody, de Queen.`)}>
 				Probar
 			</LunaButtonSetting>
 			<LunaSwitchSetting

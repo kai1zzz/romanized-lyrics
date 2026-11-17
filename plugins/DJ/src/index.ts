@@ -2,7 +2,7 @@ import { type LunaUnload, Tracer } from "@luna/core";
 import { MediaItem, PlayState, redux } from "@luna/lib";
 
 import { recommendations } from "./api";
-import { djHello, type TrackInfo, trackIntro } from "./lines";
+import { DJ_INTRO, djHello, type TrackInfo, trackIntro } from "./lines";
 import { settings } from "./Settings";
 import { speak, stopSpeaking, type VoiceOptions } from "./voice";
 
@@ -104,14 +104,20 @@ export const voiceOptions = (): VoiceOptions => ({
 
 export const say = (text: string) => speak(text, voiceOptions()).catch(trace.err.withContext("speak"));
 
+/** Whether the DJ already introduced itself this session */
+let introduced = false;
+
 MediaItem.onMediaTransition(unloads, async (item) => {
 	const id = String(item.id);
 	history.add(id);
 
 	const seed = djPicks.get(id);
 	if (settings.enabled && settings.voice && (seed !== undefined || settings.announceAll)) {
+		// The first time the DJ talks in a session it introduces itself
+		const intro = introduced ? "" : `${DJ_INTRO} `;
+		introduced = true;
 		// Let the track start before talking over it
-		setTimeout(() => say(trackIntro(infoOf(item), seed)), 800);
+		setTimeout(() => say(intro + trackIntro(infoOf(item), seed)), 800);
 	}
 	topUp().catch(trace.err.withContext("topUp"));
 });
@@ -123,7 +129,10 @@ export const onEnabledChange = async () => {
 		return;
 	}
 	const current = await MediaItem.fromPlaybackContext().catch(() => undefined);
-	if (settings.voice) say(djHello(current ? infoOf(current) : undefined));
+	if (settings.voice) {
+		introduced = true;
+		say(djHello(current ? infoOf(current) : undefined));
+	}
 	topUp().catch(trace.err.withContext("topUp"));
 };
 

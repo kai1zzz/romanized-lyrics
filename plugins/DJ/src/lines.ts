@@ -29,7 +29,10 @@ const TRACK_TEMPLATES: ((t: TrackInfo, seed?: TrackInfo) => string | undefined)[
 
 export const trackIntro = (t: TrackInfo, seed?: TrackInfo) => pickTemplate(TRACK_TEMPLATES, t, seed);
 
-export const djHello = (current?: TrackInfo) =>
+/** How the DJ introduces itself */
+export const DJ_INTRO = "Soy tu DJ virtual personal.";
+
+export const djHello =(current?: TrackInfo) =>
 	current
-		? `Soy tu DJ virtual personal. Cuando se acabe la cola sigo yo, con música parecida a ${current.title}, de ${current.artist}.`
-		: `Soy tu DJ virtual personal. Pon una canción y yo me encargo del resto.`;
+		? `${DJ_INTRO} Cuando se acabe la cola sigo yo, con música parecida a ${current.title}, de ${current.artist}.`
+		: `${DJ_INTRO} Pon una canción y yo me encargo del resto.`;

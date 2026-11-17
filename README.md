@@ -1,4 +1,4 @@
-# RomajiLyrics para TidaLuna
+# Romanized Lyrics para TidaLuna
 
 Plugin de [TidaLuna](https://github.com/Inrixia/TidaLuna) que romaniza las letras de Tidal:
 
@@ -33,7 +33,7 @@ Ejemplos:
    npx pnpm@10 run watch
    ```
 
-3. Abre Tidal → **Luna Settings** → **Plugin Store** → tienda **DEV** → instala **@luna/romaji-lyrics**.
+3. Abre Tidal → **Luna Settings** → **Plugin Store** → tienda **DEV** → instala **@kai1zzz/romanized-lyrics**.
 4. Pon una canción japonesa y abre la letra. El modo se cambia en los ajustes del plugin.
 
 Mientras `watch` esté corriendo, cualquier cambio en `plugins/RomajiLyrics/src` se recarga en Tidal.
@@ -41,7 +41,7 @@ Mientras `watch` esté corriendo, cualquier cambio en `plugins/RomajiLyrics/src`
 ## Desarrollo
 
 - `npx pnpm@10 run test`: prueba la conversión a romaji con frases de ejemplo (sin Tidal).
-- `npx pnpm@10 run build`: genera `dist/` (el plugin `luna.romaji-lyrics.mjs` + `store.json`).
+- `npx pnpm@10 run build`: genera `dist/` (el plugin `kai1zzz.romanized-lyrics.mjs` + `store.json`).
 - Si el proyecto está en una ruta muy larga y esbuild no arranca (`spawn ... esbuild.exe ENOENT`), crea un `.npmrc` con `node-linker=hoisted` y reinstala.
 
 ### Archivos

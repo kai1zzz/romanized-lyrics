@@ -1,6 +1,6 @@
 {
-	"name": "tidal-romaji-lyrics",
-	"description": "Plugin de TidaLuna: letras en romaji",
+	"name": "@kai1zzz/luna-plugins",
+	"description": "Plugins de kai1zzz para TidaLuna: letras romanizadas (romaji, coreano, pinyin)",
 	"type": "module",
 	"scripts": {
 		"watch": "concurrently \"pnpm:build --watch\" pnpm:serve",

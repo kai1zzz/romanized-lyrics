@@ -1,9 +1,10 @@
 import { type LunaUnload, Tracer } from "@luna/core";
 import { MediaItem, PlayState, redux } from "@luna/lib";
 
+import { aiIntro } from "./ai.native";
 import { favoriteTracks, recommendations } from "./api";
 import { mountButton } from "./button";
-import { DJ_INTRO, djHello, type TrackInfo, trackIntro } from "./lines";
+import { DJ_INTRO, type TrackInfo, trackIntro } from "./lines";
 import { settings } from "./Settings";
 import { speak, stopSpeaking, type VoiceOptions } from "./voice";
 
@@ -71,8 +72,47 @@ const findPicks = async (seed: MediaItem, count: number): Promise<MediaItem[]> =
 		if (item !== undefined && item.tidalItem.allowStreaming !== false) picks.push(item);
 	}
 	const seedInfo = infoOf(seed);
-	for (const p of picks) djPicks.set(String(p.id), seedInfo);
+	for (const p of picks) {
+		djPicks.set(String(p.id), seedInfo);
+		prefetchComment(p, seedInfo); // so the AI intro is ready when the track starts
+	}
 	return picks;
+};
+
+// ---------------------------------------------------------------------------
+// AI comments (Claude)
+// ---------------------------------------------------------------------------
+
+const aiReady = () => settings.aiComments && settings.anthropicKey.trim().length > 20;
+/** trackId -> AI intro being written / already written */
+const aiComments = new Map<string, Promise<string>>();
+let aiWarned = false;
+
+const prefetchComment = (item: MediaItem, previous?: TrackInfo) => {
+	if (!aiReady() || !session) return;
+	const id = String(item.id);
+	if (aiComments.has(id)) return;
+	const p = aiIntro(settings.anthropicKey, settings.aiModel, infoOf(item), previous);
+	p.catch(() => aiComments.delete(id)); // let a later attempt retry
+	aiComments.set(id, p);
+};
+
+/** The intro to say for `item`: Claude's if it arrives in time, otherwise a template */
+const introFor = async (item: MediaItem, previous?: TrackInfo): Promise<string> => {
+	const fallback = trackIntro(infoOf(item), previous);
+	if (!aiReady()) return fallback;
+	prefetchComment(item, previous);
+	const pending = aiComments.get(String(item.id));
+	if (pending === undefined) return fallback;
+	try {
+		return await Promise.race([pending, new Promise<string>((_, reject) => setTimeout(() => reject(new Error("timeout")), 6000))]);
+	} catch (err) {
+		if (!aiWarned && !(err instanceof Error && err.message === "timeout")) {
+			aiWarned = true;
+			trace.msg.err.withContext("Los comentarios con IA fallaron, uso las frases normales")(err);
+		} else trace.warn("AI intro", err);
+		return fallback;
+	}
 };
 
 let topping: Promise<void> | undefined;
@@ -184,28 +224,33 @@ MediaItem.onMediaTransition(unloads, async (item) => {
 	history.add(id);
 
 	const seed = djPicks.get(id);
-	if ((settings.enabled || session) && settings.voice && (seed !== undefined || settings.announceAll)) {
+	// The DJ only talks while DJ Kai is on (the button), never on its own when Tidal starts
+	if (session && settings.voice && (seed !== undefined || settings.announceAll)) {
 		// The first time the DJ talks in a session it introduces itself
 		const intro = introduced ? "" : `${DJ_INTRO} `;
 		introduced = true;
+		const textPromise = introFor(item, seed);
 		// Let the track start before talking over it
-		setTimeout(() => say(intro + trackIntro(infoOf(item), seed)), 800);
+		setTimeout(async () => {
+			const text = await textPromise;
+			if (session && String((await MediaItem.fromPlaybackContext().catch(() => undefined))?.id) === id) say(intro + text);
+		}, 800);
 	}
 	topUp().catch(trace.err.withContext("topUp"));
 });
 
-/** Called from the settings when the DJ is switched on/off */
+/** Called from the settings when the auto-fill switch changes (silent: the DJ only talks with DJ Kai on) */
 export const onEnabledChange = async () => {
-	if (!settings.enabled) {
-		stopSpeaking();
-		return;
-	}
-	const current = await MediaItem.fromPlaybackContext().catch(() => undefined);
-	if (settings.voice) {
-		introduced = true;
-		say(djHello(current ? infoOf(current) : undefined));
-	}
 	topUp().catch(trace.err.withContext("topUp"));
+};
+
+/** "Probar comentario IA" button in the settings */
+export const testAiComment = async () => {
+	const current = await MediaItem.fromPlaybackContext().catch(() => undefined);
+	const track: TrackInfo = current ? infoOf(current) : { title: "Bohemian Rhapsody", artist: "Queen", album: "A Night at the Opera", year: "1975" };
+	const text = await aiIntro(settings.anthropicKey, settings.aiModel, track);
+	await say(text);
+	return text;
 };
 
 mountButton(unloads, {

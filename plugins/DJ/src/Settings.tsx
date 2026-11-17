@@ -12,7 +12,8 @@ import {
 	LunaTextSetting,
 } from "@luna/ui";
 
-import { onEnabledChange, say } from ".";
+import { onEnabledChange, say, testAiComment } from ".";
+import type { AiModel } from "./ai.native";
 import { type AzureVoice, listVoices } from "./azure.native";
 import { DJ_INTRO } from "./lines";
 import { getVoices } from "./voice";
@@ -30,6 +31,9 @@ export const settings = await ReactiveStore.getPluginStorage("KaiDJ", {
 	azureVoice: "es-ES-AlvaroNeural",
 	announceAll: false,
 	duckPercent: 35,
+	aiComments: false,
+	anthropicKey: "",
+	aiModel: "claude-opus-5-5" as AiModel,
 });
 
 type Change = { target: { value: unknown } };
@@ -45,6 +49,10 @@ export const Settings = () => {
 	const [azureVoice, setAzureVoice] = React.useState(settings.azureVoice);
 	const [announceAll, setAnnounceAll] = React.useState(settings.announceAll);
 	const [duckPercent, setDuckPercent] = React.useState(settings.duckPercent);
+	const [aiComments, setAiComments] = React.useState(settings.aiComments);
+	const [anthropicKey, setAnthropicKey] = React.useState(settings.anthropicKey);
+	const [aiModel, setAiModel] = React.useState<AiModel>(settings.aiModel);
+	const [aiStatus, setAiStatus] = React.useState("");
 
 	const [windowsVoices, setWindowsVoices] = React.useState<SpeechSynthesisVoice[]>([]);
 	const [azureVoices, setAzureVoices] = React.useState<AzureVoice[]>([]);
@@ -170,6 +178,49 @@ export const Settings = () => {
 			<LunaButtonSetting title="Probar voz" desc="Reproduce una presentación de ejemplo con la voz elegida." onClick={() => say(`${DJ_INTRO} Si te gustó esa, esta te va a encantar: Bohemian Rhapsody, de Queen.`)}>
 				Probar
 			</LunaButtonSetting>
+
+			<LunaSwitchSetting
+				title="Comentarios con IA (Claude)"
+				desc="En vez de frases fijas, Claude escribe cada presentación. Necesita una clave de API de Anthropic (de pago por uso). Si falla o tarda, usa las frases normales."
+				checked={aiComments}
+				onChange={(_: unknown, checked?: boolean) => setAiComments((settings.aiComments = checked ?? false))}
+			/>
+			{aiComments && (
+				<>
+					<LunaSecureTextSetting
+						title="Clave de API de Anthropic"
+						desc="console.anthropic.com → API Keys. Se guarda solo en este PC."
+						// MUI's input types aren't installed in this repo (they come from Luna at runtime), so pass these untyped
+						{...({
+							value: anthropicKey,
+							onChange: (e: Change) => setAnthropicKey((settings.anthropicKey = String(e.target.value).trim())),
+						} as object)}
+					/>
+					<LunaSelectSetting
+						title="Modelo"
+						desc="Opus 5.5: el mejor. Sonnet 5.5: casi igual y más barato. Haiku 5.5: el más barato y rápido."
+						value={aiModel}
+						onChange={(e: Change) => setAiModel((settings.aiModel = e.target.value as AiModel))}
+					>
+						<LunaSelectItem value="claude-opus-5-5">Claude Opus 5.5</LunaSelectItem>
+						<LunaSelectItem value="claude-sonnet-5-5">Claude Sonnet 5.5</LunaSelectItem>
+						<LunaSelectItem value="claude-haiku-5-5">Claude Haiku 5.5</LunaSelectItem>
+					</LunaSelectSetting>
+					<LunaButtonSetting
+						title="Probar comentario IA"
+						desc={aiStatus || "Pide a Claude una presentación de la canción que suena y la dice en voz alta."}
+						onClick={() => {
+							setAiStatus("Escribiendo…");
+							testAiComment()
+								.then((text) => setAiStatus(`«${text}»`))
+								.catch((err: unknown) => setAiStatus(`Error: ${err instanceof Error ? err.message : String(err)}`));
+						}}
+					>
+						Probar
+					</LunaButtonSetting>
+				</>
+			)}
+
 			<LunaSwitchSetting
 				title="Presentar todas las canciones"
 				desc="Si está activado, la voz presenta también las canciones que no eligió el DJ."

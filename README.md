@@ -26,8 +26,10 @@ Segundo plugin de esta tienda (`plugins/DJ`), **@kai1zzz/dj**: un DJ personal.
 
 - Botón **DJ Kai** en la barra del reproductor: al pulsarlo el DJ toma el control al momento y va poniendo sus elecciones justo después de la canción actual (si no suena nada, empieza con una de tus favoritas). Pulsa otra vez para devolverte tu cola.
 - Modo automático: cuando a la cola le quedan pocas canciones, añade al final canciones parecidas a la última de la cola, usando las *canciones similares* y la *radio de canción* de Tidal. No repite lo que ya sonó en la sesión.
-- Presenta con voz las canciones que elige («Si te gustó X, esta te va a encantar: Y, de Z»), con una voz de Windows, bajando un poco la música mientras habla.
-- Ajustes: activar/desactivar, cuántas canciones mantener por delante, voz on/off, qué voz, presentar todas las canciones, volumen de la música mientras habla.
+- Mientras DJ Kai está activado, presenta con voz las canciones que elige, bajando un poco la música mientras habla. Fuera de DJ Kai no habla nunca (tampoco al abrir Tidal).
+- Voz de Windows o de Azure AI Speech (voces neuronales, con tu clave).
+- Comentarios con IA opcionales: Claude (Opus 5.5, Sonnet 5.5 o Haiku 5.5, con tu clave de Anthropic) escribe cada presentación; se piden por adelantado para que estén listas al empezar la canción, y si fallan o tardan se usan las frases normales.
+- Ajustes: modo automático on/off, cuántas canciones mantener por delante, voz on/off, motor y voz, comentarios con IA, presentar todas las canciones, volumen de la música mientras habla.
 - No hace nada con la repetición activada (la cola ya se repite sola).
 
 ## Instalar desde la tienda

@@ -4,7 +4,7 @@ import { MediaItem, PlayState, redux } from "@luna/lib";
 import { recommendations } from "./api";
 import { djHello, type TrackInfo, trackIntro } from "./lines";
 import { settings } from "./Settings";
-import { speak, stopSpeaking } from "./voice";
+import { speak, stopSpeaking, type VoiceOptions } from "./voice";
 
 export const { trace, errSignal } = Tracer("[DJ]");
 export { Settings } from "./Settings";
@@ -86,8 +86,23 @@ const doTopUp = async () => {
 // Voice
 // ---------------------------------------------------------------------------
 
-const say = (text: string) =>
-	speak(text, { voiceName: settings.voiceName, duckPercent: settings.duckPercent }).catch(trace.err.withContext("speak"));
+let azureWarned = false;
+export const voiceOptions = (): VoiceOptions => ({
+	engine: settings.engine,
+	voiceName: settings.voiceName,
+	azureKey: settings.azureKey,
+	azureRegion: settings.azureRegion,
+	azureVoice: settings.azureVoice,
+	duckPercent: settings.duckPercent,
+	onAzureError: (err) => {
+		// Warn once per session, then keep falling back to the Windows voice quietly
+		if (azureWarned) return trace.err.withContext("Azure")(err);
+		azureWarned = true;
+		trace.msg.err.withContext("La voz de Azure falló, uso la de Windows")(err);
+	},
+});
+
+export const say = (text: string) => speak(text, voiceOptions()).catch(trace.err.withContext("speak"));
 
 MediaItem.onMediaTransition(unloads, async (item) => {
 	const id = String(item.id);

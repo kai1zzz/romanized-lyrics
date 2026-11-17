@@ -1,6 +1,25 @@
 import { redux } from "@luna/lib";
 
-/** Voices installed in Windows (Web Speech API). They load asynchronously the first time. */
+import { synthesize } from "./azure.native";
+
+export type VoiceOptions = {
+	engine: "windows" | "azure";
+	/** Windows voice name */
+	voiceName: string;
+	azureKey: string;
+	azureRegion: string;
+	azureVoice: string;
+	/** Music volume while talking, in % of the current volume */
+	duckPercent: number;
+	/** Called when Azure fails and we fall back to the Windows voice */
+	onAzureError?: (err: unknown) => void;
+};
+
+// ---------------------------------------------------------------------------
+// Windows voices (Web Speech API)
+// ---------------------------------------------------------------------------
+
+/** Voices installed in Windows. They load asynchronously the first time. */
 export const getVoices = (): Promise<SpeechSynthesisVoice[]> =>
 	new Promise((resolve) => {
 		const voices = speechSynthesis.getVoices();
@@ -17,6 +36,53 @@ const pickVoice = async (name: string) => {
 	const voices = await getVoices();
 	return voices.find((v) => v.name === name) ?? voices.find((v) => v.lang.toLowerCase().startsWith("es")) ?? voices[0];
 };
+
+/** Returns a function that plays the prepared speech and resolves when it ends */
+const prepareWindows = async (text: string, voiceName: string) => {
+	const voice = await pickVoice(voiceName);
+	return () =>
+		new Promise<void>((resolve) => {
+			const utterance = new SpeechSynthesisUtterance(text);
+			if (voice) {
+				utterance.voice = voice;
+				utterance.lang = voice.lang;
+			}
+			utterance.rate = 1.05;
+			utterance.onend = () => resolve();
+			utterance.onerror = () => resolve();
+			speechSynthesis.cancel();
+			speechSynthesis.speak(utterance);
+		});
+};
+
+// ---------------------------------------------------------------------------
+// Azure voices (MP3 synthesized in the native process, played here)
+// ---------------------------------------------------------------------------
+
+let currentAudio: HTMLAudioElement | undefined;
+
+const prepareAzure = async (text: string, o: VoiceOptions) => {
+	const bytes = await synthesize(o.azureKey, o.azureRegion, o.azureVoice, text);
+	const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: "audio/mpeg" }));
+	return () =>
+		new Promise<void>((resolve) => {
+			const audio = new Audio(url);
+			currentAudio = audio;
+			const done = () => {
+				URL.revokeObjectURL(url);
+				if (currentAudio === audio) currentAudio = undefined;
+				resolve();
+			};
+			audio.onended = done;
+			audio.onerror = done;
+			audio.onpause = done;
+			audio.play().catch(done);
+		});
+};
+
+// ---------------------------------------------------------------------------
+// Speaking with music ducking
+// ---------------------------------------------------------------------------
 
 const getVolume = () => redux.store.getState().playbackControls.volume;
 const setVolume = (volume: number) => redux.actions["playbackControls/SET_VOLUME"]({ volume: Math.round(Math.max(0, Math.min(100, volume))) });
@@ -36,32 +102,33 @@ let speaking: Promise<void> | undefined;
  * Speaks `text`, lowering the music to `duckPercent`% of its volume while talking and bringing it back afterwards.
  * If the user moves the volume while the DJ talks, their new volume is kept.
  */
-export const speak = async (text: string, { voiceName, duckPercent }: { voiceName: string; duckPercent: number }) => {
+export const speak = async (text: string, o: VoiceOptions) => {
 	await speaking; // one announcement at a time
 	speaking = (async () => {
-		const voice = await pickVoice(voiceName);
-		const original = getVolume();
-		const ducked = (original * duckPercent) / 100;
-		if (duckPercent < 100) await fadeVolume(original, ducked);
-
-		await new Promise<void>((resolve) => {
-			const utterance = new SpeechSynthesisUtterance(text);
-			if (voice) {
-				utterance.voice = voice;
-				utterance.lang = voice.lang;
+		// Prepare the audio first (Azure takes a moment) so the music ducks right when the voice starts
+		let play: () => Promise<void>;
+		if (o.engine === "azure" && o.azureKey && o.azureRegion && o.azureVoice) {
+			try {
+				play = await prepareAzure(text, o);
+			} catch (err) {
+				o.onAzureError?.(err);
+				play = await prepareWindows(text, o.voiceName);
 			}
-			utterance.rate = 1.05;
-			utterance.onend = () => resolve();
-			utterance.onerror = () => resolve();
-			speechSynthesis.cancel();
-			speechSynthesis.speak(utterance);
-			setTimeout(resolve, 20000); // never leave the music ducked
-		});
+		} else play = await prepareWindows(text, o.voiceName);
+
+		const original = getVolume();
+		const ducked = (original * o.duckPercent) / 100;
+		if (o.duckPercent < 100) await fadeVolume(original, ducked);
+
+		await Promise.race([play(), new Promise((r) => setTimeout(r, 30000))]); // never leave the music ducked
 
 		// Restore unless the user changed the volume meanwhile
-		if (duckPercent < 100 && Math.abs(getVolume() - Math.round(ducked)) <= 1) await fadeVolume(getVolume(), original);
+		if (o.duckPercent < 100 && Math.abs(getVolume() - Math.round(ducked)) <= 1) await fadeVolume(getVolume(), original);
 	})();
 	return speaking;
 };
 
-export const stopSpeaking = () => speechSynthesis.cancel();
+export const stopSpeaking = () => {
+	speechSynthesis.cancel();
+	currentAudio?.pause();
+};

@@ -1,2 +1,9 @@
 packages:
  - "plugins/*"
+
+# Only use package versions published at least 1 day ago (same rule GitHub's pnpm enforces)
+minimumReleaseAge: 1440
+
+# minimatch 11.0.9 was published hours before the first CI run; pin the previous release
+overrides:
+  minimatch: 11.0.8

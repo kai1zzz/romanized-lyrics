@@ -96,6 +96,12 @@ const fadeVolume = async (from: number, to: number, ms = 400) => {
 	}
 };
 
+/** Words the voices mispronounce, spelled the way they should sound */
+const PRONUNCIATIONS: [RegExp, string][] = [
+	[/\bD\.?J\.?(s?)\b/gi, "diyéi$1"], // "DJ" -> di-yéi, not "de jota"
+];
+const pronounce = (text: string) => PRONUNCIATIONS.reduce((t, [re, sound]) => t.replace(re, sound), text);
+
 let speaking: Promise<void> | undefined;
 
 /**
@@ -103,6 +109,7 @@ let speaking: Promise<void> | undefined;
  * If the user moves the volume while the DJ talks, their new volume is kept.
  */
 export const speak = async (text: string, o: VoiceOptions) => {
+	text = pronounce(text);
 	await speaking; // one announcement at a time
 	speaking = (async () => {
 		// Prepare the audio first (Azure takes a moment) so the music ducks right when the voice starts

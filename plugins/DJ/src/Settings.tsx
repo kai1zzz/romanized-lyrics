@@ -153,7 +153,7 @@ export const Settings = () => {
 						value={azureVoices.some((v) => v.name === azureVoice) ? azureVoice : ""}
 						onChange={(e: Change) => {
 							setAzureVoice((settings.azureVoice = String(e.target.value)));
-							say("Hola, soy tu DJ. Así sueno yo.");
+							say("Soy tu DJ virtual personal. Así sueno yo.");
 						}}
 					>
 						{azureVoices.map((v) => (

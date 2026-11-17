@@ -31,5 +31,5 @@ export const trackIntro = (t: TrackInfo, seed?: TrackInfo) => pickTemplate(TRACK
 
 export const djHello = (current?: TrackInfo) =>
 	current
-		? `${pick(["¡Hola!", "¡Buenas!", "¿Qué tal?"])} Soy tu DJ. Cuando se acabe la cola sigo yo, con música parecida a ${current.title}, de ${current.artist}.`
-		: `${pick(["¡Hola!", "¡Buenas!"])} Soy tu DJ. Pon una canción y yo me encargo del resto.`;
+		? `Soy tu DJ virtual personal. Cuando se acabe la cola sigo yo, con música parecida a ${current.title}, de ${current.artist}.`
+		: `Soy tu DJ virtual personal. Pon una canción y yo me encargo del resto.`;

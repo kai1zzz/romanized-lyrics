@@ -4,8 +4,9 @@ import { MediaItem, PlayState, redux } from "@luna/lib";
 import { aiIntro } from "./ai.native";
 import { favoriteTracks, recommendations } from "./api";
 import { mountButton } from "./button";
-import { DJ_INTRO, type TrackInfo, trackIntro } from "./lines";
+import { DJ_INTRO, greeting, midComment, timeContext, type TrackInfo, trackIntro } from "./lines";
 import { settings } from "./Settings";
+import { isAvoidedArtist, isSkippedTrack, recordSkip } from "./skips";
 import { speak, stopSpeaking, type VoiceOptions } from "./voice";
 
 export const { trace, errSignal } = Tracer("[DJ]");
@@ -63,14 +64,21 @@ const findPicks = async (seed: MediaItem, count: number): Promise<MediaItem[]> =
 	}
 	const queued = PlayState.playQueue.elements.map((e: redux.PlayQueueElement) => String(e.mediaItemId));
 	const exclude = new Set([...history, ...queued]);
-	// Take from the most relevant ones, with a bit of randomness so it's not always the same order
-	const pool = ids.filter((id) => !exclude.has(id)).slice(0, Math.max(count * 4, 12));
+	// Take from the most relevant ones, with a bit of randomness so it's not always the same order.
+	// Never offer a track you skipped before.
+	const pool = ids.filter((id) => !exclude.has(id) && !isSkippedTrack(id)).slice(0, Math.max(count * 5, 15));
 	const picks: MediaItem[] = [];
+	const avoided: MediaItem[] = [];
 	while (picks.length < count && pool.length > 0) {
 		const [id] = pool.splice(Math.floor(Math.random() * Math.min(pool.length, 6)), 1);
 		const item = await MediaItem.fromId(id).catch(() => undefined);
-		if (item !== undefined && item.tidalItem.allowStreaming !== false) picks.push(item);
+		if (item === undefined || item.tidalItem.allowStreaming === false) continue;
+		// Artists you keep skipping go to the back of the line
+		if (isAvoidedArtist(item.tidalItem.artists?.[0]?.id)) avoided.push(item);
+		else picks.push(item);
 	}
+	// Only fall back to avoided artists if there's nothing else
+	while (picks.length < count && avoided.length > 0) picks.push(avoided.shift()!);
 	const seedInfo = infoOf(seed);
 	for (const p of picks) {
 		djPicks.set(String(p.id), seedInfo);
@@ -92,7 +100,7 @@ const prefetchComment = (item: MediaItem, previous?: TrackInfo) => {
 	if (!aiReady() || !session) return;
 	const id = String(item.id);
 	if (aiComments.has(id)) return;
-	const p = aiIntro(settings.anthropicKey, settings.aiModel, infoOf(item), previous);
+	const p = aiIntro(settings.anthropicKey, settings.aiModel, infoOf(item), previous, { kind: "intro", time: timeContext() });
 	p.catch(() => aiComments.delete(id)); // let a later attempt retry
 	aiComments.set(id, p);
 };
@@ -185,11 +193,12 @@ export const toggleSession = async () => {
 		}
 		current = await MediaItem.fromId(id);
 		if (current === undefined) return setSession(false);
-		if (settings.voice) say(`${DJ_INTRO} Empezamos con algo que te gusta.`);
+		if (settings.voice) say(`${greeting()} ${DJ_INTRO} Empezamos con algo que te gusta.`);
+		ignoreNextSkip = true; // we're changing the track, not you
 		PlayState.play(current.id);
 	} else if (settings.voice) {
 		const c = infoOf(current);
-		say(`${DJ_INTRO} Después de ${c.title}, sigo yo con música parecida.`);
+		say(`${greeting()} ${DJ_INTRO} Después de ${c.title}, sigo yo con música parecida.`);
 	}
 	await topUp().catch(trace.err.withContext("topUp"));
 };
@@ -219,9 +228,69 @@ export const say = (text: string) => speak(text, voiceOptions()).catch(trace.err
 /** Whether the DJ already introduced itself this session */
 let introduced = false;
 
+// ---------------------------------------------------------------------------
+// Playback tracking: skip learning + mid-song comments
+// ---------------------------------------------------------------------------
+
+type NowPlaying = { id: string; artists: (string | number)[]; duration: number; pos: number };
+let now: NowPlaying | undefined;
+/** Set when the DJ itself changes the track, so it isn't counted as your skip */
+let ignoreNextSkip = false;
+
+/** DJ picks played since the last mid-song comment */
+let songsSinceMid = 0;
+type MidPlan = { id: string; at: number; text: Promise<string>; done: boolean };
+let midPlan: MidPlan | undefined;
+
+const planMidComment = (item: MediaItem) => {
+	midPlan = undefined;
+	if (!session || !settings.voice || !settings.midComments) return;
+	songsSinceMid++;
+	const duration = item.tidalItem.duration ?? 0;
+	if (songsSinceMid < settings.midEvery || duration < 120) return;
+	songsSinceMid = 0;
+	const info = infoOf(item);
+	// Mid-song lines always use Haiku: they're extra, so they should cost almost nothing
+	const text = aiReady()
+		? aiIntro(settings.anthropicKey, "claude-haiku-5-5", info, undefined, { kind: "mid", time: timeContext() }).catch((err: unknown) => {
+				trace.warn("AI mid comment", err);
+				return midComment(info);
+			})
+		: Promise.resolve(midComment(info));
+	midPlan = { id: String(item.id), at: Math.min(duration * 0.45, 100), text, done: false };
+};
+
+const tick = setInterval(() => {
+	if (now === undefined) return;
+	const pos = PlayState.currentTime;
+	if (pos > 0) now.pos = pos;
+	if (midPlan && !midPlan.done && midPlan.id === now.id && now.pos >= midPlan.at && PlayState.playing && session) {
+		midPlan.done = true;
+		const plan = midPlan;
+		Promise.race([plan.text, new Promise<string>((r) => setTimeout(() => r(""), 4000))]).then((text) => {
+			if (text && session && now?.id === plan.id) say(text);
+		});
+	}
+}, 1000);
+unloads.add(() => clearInterval(tick));
+
 MediaItem.onMediaTransition(unloads, async (item) => {
 	const id = String(item.id);
 	history.add(id);
+
+	// Did you skip the DJ's previous pick? (left it in the first 30 s / first half, well before the end)
+	const prev = now;
+	if (prev && prev.id !== id && djPicks.has(prev.id) && !ignoreNextSkip) {
+		const early = prev.pos < Math.min(30, prev.duration * 0.5);
+		const farFromEnd = prev.duration - prev.pos > 15;
+		if (early && farFromEnd) {
+			recordSkip(prev.id, prev.artists);
+			trace.log(`Aprendido: saltaste "${djPicks.get(prev.id)?.title ?? prev.id}"`);
+		}
+	}
+	ignoreNextSkip = false;
+	now = { id, artists: (item.tidalItem.artists ?? []).map((a) => a.id), duration: item.tidalItem.duration ?? 0, pos: 0 };
+	planMidComment(item);
 
 	const seed = djPicks.get(id);
 	// The DJ only talks while DJ Kai is on (the button), never on its own when Tidal starts

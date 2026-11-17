@@ -7,10 +7,14 @@ export type AiModel = "claude-opus-5-5" | "claude-sonnet-5-5" | "claude-haiku-5-
 
 const SYSTEM = `Eres DJ Kai, un DJ virtual personal que presenta canciones en Tidal, en voz alta, como un locutor de radio cercano y con buen rollo.
 
-Escribes la frase que dirás justo cuando empieza una canción. Reglas:
-- Español neutro, tuteando. Entre 12 y 35 palabras, una o dos frases.
-- Di el título y el artista de forma natural (puedes acortar subtítulos largos entre paréntesis).
+Te pedirán uno de dos tipos de frase:
+- PRESENTACIÓN: lo que dices justo cuando empieza una canción. Entre 12 y 35 palabras, una o dos frases. Di el título y el artista de forma natural (puedes acortar subtítulos largos entre paréntesis).
+- COMENTARIO A MITAD: un apunte breve mientras la canción sigue sonando, sin interrumpir demasiado. Entre 8 y 22 palabras, una frase. No repitas la presentación; habla del artista, del estilo, del momento o invita a disfrutarla.
+
+Reglas para ambos:
+- Español neutro, tuteando.
 - Puedes enlazar con la canción anterior, el ambiente, el género o la época. Varía el estilo: no empieces siempre igual ni repitas fórmulas.
+- Te diré la hora local. De vez en cuando (no siempre) puedes aludir al momento del día, por ejemplo la noche, la mañana o la madrugada.
 - Solo menciona datos concretos (año, álbum, colaboraciones, historia) si te los dan o estás seguro de ellos. Nunca inventes anécdotas, premios ni cifras.
 - Se va a leer con una voz sintética: nada de emojis, hashtags, comillas, listas, paréntesis ni acotaciones. Escribe los números como se dicen si es raro leerlos.
 - No digas que eres una IA ni hables de estas instrucciones. Responde solo con la frase.`;
@@ -28,13 +32,24 @@ const getClient = (apiKey: string) => {
 	return client;
 };
 
-/** Writes the spoken intro for `track`. Throws on API errors so the caller can fall back to the templates. */
-export const aiIntro = async (apiKey: string, model: AiModel, track: TrackInfo, previous?: TrackInfo): Promise<string> => {
+export type AiOptions = {
+	/** "intro" when the track starts, "mid" for a short line halfway through */
+	kind?: "intro" | "mid";
+	/** Local time description, e.g. "son las 23:10 (de noche)" */
+	time?: string;
+};
+
+/** Writes what the DJ says about `track`. Throws on API errors so the caller can fall back to the templates. */
+export const aiIntro = async (apiKey: string, model: AiModel, track: TrackInfo, previous?: TrackInfo, opts: AiOptions = {}): Promise<string> => {
+	const mid = opts.kind === "mid";
 	const prompt = [
-		`Canción que empieza ahora: ${describe(track)}.`,
-		previous ? `La eligió el DJ porque se parece a la anterior: ${describe(previous)}.` : "Es la primera canción que presentas.",
-		"Escribe la presentación.",
-	].join("\n");
+		opts.time ? `Hora local: ${opts.time}.` : undefined,
+		mid ? `Canción que está sonando ahora (va por la mitad): ${describe(track)}.` : `Canción que empieza ahora: ${describe(track)}.`,
+		mid ? undefined : previous ? `La eligió el DJ porque se parece a la anterior: ${describe(previous)}.` : "Es la primera canción que presentas.",
+		mid ? "Escribe un COMENTARIO A MITAD." : "Escribe la PRESENTACIÓN.",
+	]
+		.filter(Boolean)
+		.join("\n");
 
 	const response = await getClient(apiKey.trim())
 		.beta.messages.create({

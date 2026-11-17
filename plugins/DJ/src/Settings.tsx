@@ -16,6 +16,7 @@ import { onEnabledChange, say, testAiComment } from ".";
 import type { AiModel } from "./ai.native";
 import { type AzureVoice, listVoices } from "./azure.native";
 import { DJ_INTRO } from "./lines";
+import { forgetSkips, skipStats } from "./skips";
 import { getVoices } from "./voice";
 
 export type VoiceEngine = "windows" | "azure";
@@ -34,6 +35,8 @@ export const settings = await ReactiveStore.getPluginStorage("KaiDJ", {
 	aiComments: false,
 	anthropicKey: "",
 	aiModel: "claude-opus-5-5" as AiModel,
+	midComments: false,
+	midEvery: 3,
 });
 
 type Change = { target: { value: unknown } };
@@ -53,6 +56,9 @@ export const Settings = () => {
 	const [anthropicKey, setAnthropicKey] = React.useState(settings.anthropicKey);
 	const [aiModel, setAiModel] = React.useState<AiModel>(settings.aiModel);
 	const [aiStatus, setAiStatus] = React.useState("");
+	const [midComments, setMidComments] = React.useState(settings.midComments);
+	const [midEvery, setMidEvery] = React.useState(settings.midEvery);
+	const [skips, setSkips] = React.useState(skipStats());
 
 	const [windowsVoices, setWindowsVoices] = React.useState<SpeechSynthesisVoice[]>([]);
 	const [azureVoices, setAzureVoices] = React.useState<AzureVoice[]>([]);
@@ -220,6 +226,33 @@ export const Settings = () => {
 					</LunaButtonSetting>
 				</>
 			)}
+
+			<LunaSwitchSetting
+				title="Comentarios a mitad de canción"
+				desc="De vez en cuando el DJ dice algo breve a mitad de una canción (solo en canciones de más de 2 minutos). Con IA usa siempre Claude Haiku 5.5, el modelo más barato."
+				checked={midComments}
+				onChange={(_: unknown, checked?: boolean) => setMidComments((settings.midComments = checked ?? false))}
+			/>
+			{midComments && (
+				<LunaNumberSetting
+					title="Cada cuántas canciones"
+					desc="2 = una de cada dos canciones; 5 = una de cada cinco. Más alto = gasta menos."
+					min={1}
+					max={10}
+					value={midEvery}
+					onNumber={(n: number) => setMidEvery((settings.midEvery = n))}
+				/>
+			)}
+			<LunaButtonSetting
+				title="Olvidar canciones saltadas"
+				desc={`El DJ aprende de lo que saltas: ${skips.tracks} canciones que no volverá a poner y ${skips.artists} artistas que evita. Esto lo borra.`}
+				onClick={() => {
+					forgetSkips();
+					setSkips(skipStats());
+				}}
+			>
+				Olvidar
+			</LunaButtonSetting>
 
 			<LunaSwitchSetting
 				title="Presentar todas las canciones"

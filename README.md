@@ -29,6 +29,9 @@ Segundo plugin de esta tienda (`plugins/DJ`), **@kai1zzz/dj**: un DJ personal.
 - Mientras DJ Kai está activado, presenta con voz las canciones que elige, bajando un poco la música mientras habla. Fuera de DJ Kai no habla nunca (tampoco al abrir Tidal).
 - Voz de Windows o de Azure AI Speech (voces neuronales, con tu clave).
 - Comentarios con IA opcionales: Claude (Opus 5.5, Sonnet 5.5 o Haiku 5.5, con tu clave de Anthropic) escribe cada presentación; se piden por adelantado para que estén listas al empezar la canción, y si fallan o tardan se usan las frases normales.
+- Saluda según la hora del día («¡Buenas noches! Soy tu DJ virtual personal…») y a veces lo menciona en las presentaciones.
+- Aprende de lo que saltas: si dejas una de sus canciones en los primeros 30 segundos, no te la vuelve a poner, y tras 2 saltos del mismo artista deja de elegirlo (botón «Olvidar canciones saltadas» para empezar de cero). Todo local, sin IA.
+- Comentarios a mitad de canción opcionales (apagados por defecto): cada N canciones dice algo breve hacia la mitad; con IA usa siempre Claude Haiku 5.5 para que apenas gaste.
 - Ajustes: modo automático on/off, cuántas canciones mantener por delante, voz on/off, motor y voz, comentarios con IA, presentar todas las canciones, volumen de la música mientras habla.
 - No hace nada con la repetición activada (la cola ya se repite sola).
 

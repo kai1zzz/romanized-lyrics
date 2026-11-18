@@ -101,7 +101,7 @@ const prefetchComment = (item: MediaItem, previous?: TrackInfo) => {
 	if (!aiReady() || !session) return;
 	const id = String(item.id);
 	if (aiComments.has(id)) return;
-	const p = aiIntro(settings.anthropicKey, settings.aiModel, infoOf(item), previous, { kind: "intro", time: timeContext() });
+	const p = aiIntro(settings.anthropicKey, settings.aiModel, infoOf(item), previous, { kind: "intro", time: timeContext() }).then((r) => r.text);
 	p.catch(() => aiComments.delete(id)); // let a later attempt retry
 	aiComments.set(id, p);
 };
@@ -265,7 +265,7 @@ const toldFacts = new Map<string, string[]>();
 
 /**
  * A curious fact about the track or its artist, taken from Wikipedia + Tidal's artist bio (not from the model's memory).
- * Mid-song lines always use Haiku: they're extra, so they should cost almost nothing.
+ * Uses the same model as the intros.
  */
 const curiousFact = async (item: MediaItem): Promise<string> => {
 	const info = infoOf(item);
@@ -277,10 +277,12 @@ const curiousFact = async (item: MediaItem): Promise<string> => {
 	]);
 	const sources = [wiki, bio ? `Biografía de Tidal sobre ${info.artist}:\n${bio}` : ""].filter(Boolean).join("\n\n");
 	const told = toldFacts.get(artistKey) ?? [];
-	const fact = await aiFact(settings.anthropicKey, "claude-haiku-5-5", info, sources, told).catch((err: unknown) => {
-		trace.warn("AI fact", err);
-		return "";
-	});
+	const fact = await aiFact(settings.anthropicKey, settings.aiModel, info, sources, told)
+		.then((r) => r.text)
+		.catch((err: unknown) => {
+			trace.warn("AI fact", err);
+			return "";
+		});
 	if (fact) toldFacts.set(artistKey, [...told, fact].slice(-8));
 	return fact;
 };
@@ -342,9 +344,9 @@ export const onEnabledChange = async () => {
 export const testAiComment = async () => {
 	const current = await MediaItem.fromPlaybackContext().catch(() => undefined);
 	const track: TrackInfo = current ? infoOf(current) : { title: "Bohemian Rhapsody", artist: "Queen", album: "A Night at the Opera", year: "1975" };
-	const text = await aiIntro(settings.anthropicKey, settings.aiModel, track);
-	await say(text);
-	return text;
+	const result = await aiIntro(settings.anthropicKey, settings.aiModel, track, undefined, { time: timeContext() });
+	await say(result.text);
+	return result.text;
 };
 
 mountButton(unloads, {

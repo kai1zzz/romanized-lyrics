@@ -204,7 +204,7 @@ export const Settings = () => {
 					/>
 					<LunaSelectSetting
 						title="Modelo"
-						desc="Opus 5.5: el mejor. Sonnet 5.5: casi igual y más barato. Haiku 5.5: el más barato y rápido."
+						desc="Se usa para presentaciones y datos curiosos. Aprox. por frase: Opus 5.5 ~0,7 céntimos (datos ~2), Sonnet 5.5 ~0,3 (datos ~1), Haiku 5.5 ~0,02 (datos ~0,05)."
 						value={aiModel}
 						onChange={(e: Change) => setAiModel((settings.aiModel = e.target.value as AiModel))}
 					>
@@ -229,7 +229,7 @@ export const Settings = () => {
 
 			<LunaSwitchSetting
 				title="Datos curiosos a mitad de canción"
-				desc="De vez en cuando, a mitad de una canción (de más de 2 minutos), el DJ cuenta un dato curioso sobre la canción o el artista, sacado de Wikipedia y de la biografía de Tidal. Necesita los comentarios con IA (usa siempre Claude Haiku 5.5). Si no encuentra nada interesante, no dice nada."
+				desc="De vez en cuando, a mitad de una canción (de más de 2 minutos), el DJ cuenta un dato curioso sobre la canción o el artista, sacado de Wikipedia y de la biografía de Tidal. Necesita los comentarios con IA y usa el mismo modelo. Si no encuentra nada interesante, no dice nada."
 				checked={midComments}
 				onChange={(_: unknown, checked?: boolean) => setMidComments((settings.midComments = checked ?? false))}
 			/>

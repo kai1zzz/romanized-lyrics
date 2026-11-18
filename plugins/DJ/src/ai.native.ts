@@ -1,5 +1,8 @@
 // Runs in Tidal's main (Node) process: writes the DJ's spoken intros with Claude.
 import Anthropic from "@anthropic-ai/sdk";
+import { app } from "electron";
+import { appendFile, mkdir } from "fs/promises";
+import path from "path";
 
 import type { TrackInfo } from "./lines";
 
@@ -40,7 +43,7 @@ export type AiOptions = {
 };
 
 /** Writes what the DJ says about `track`. Throws on API errors so the caller can fall back to the templates. */
-export const aiIntro = async (apiKey: string, model: AiModel, track: TrackInfo, previous?: TrackInfo, opts: AiOptions = {}): Promise<string> => {
+export const aiIntro = async (apiKey: string, model: AiModel, track: TrackInfo, previous?: TrackInfo, opts: AiOptions = {}): Promise<AiResult> => {
 	const mid = opts.kind === "mid";
 	const prompt = [
 		opts.time ? `Hora local: ${opts.time}.` : undefined,
@@ -50,7 +53,7 @@ export const aiIntro = async (apiKey: string, model: AiModel, track: TrackInfo, 
 	]
 		.filter(Boolean)
 		.join("\n");
-	return ask(apiKey, model, SYSTEM, prompt);
+	return ask(apiKey, model, SYSTEM, prompt, "intro");
 };
 
 const FACT_SYSTEM = `Eres DJ Kai, un DJ virtual personal que habla en voz alta en Tidal, como un locutor de radio cercano.
@@ -71,8 +74,8 @@ Reglas:
  * A curious fact about `track` taken only from `sources`. Returns "" when there's nothing worth saying.
  * Throws on API errors.
  */
-export const aiFact = async (apiKey: string, model: AiModel, track: TrackInfo, sources: string, alreadyTold: string[]): Promise<string> => {
-	if (!sources.trim()) return "";
+export const aiFact = async (apiKey: string, model: AiModel, track: TrackInfo, sources: string, alreadyTold: string[]): Promise<AiResult> => {
+	if (!sources.trim()) return { text: "", usd: 0, model };
 	const prompt = [
 		`Canción que está sonando: ${describe(track)}.`,
 		alreadyTold.length ? `Datos que ya contaste antes (no los repitas):\n- ${alreadyTold.join("\n- ")}` : undefined,
@@ -81,11 +84,30 @@ export const aiFact = async (apiKey: string, model: AiModel, track: TrackInfo, s
 	]
 		.filter(Boolean)
 		.join("\n\n");
-	const text = await ask(apiKey, model, FACT_SYSTEM, prompt);
-	return /^NADA\.?$/i.test(text) ? "" : text;
+	const result = await ask(apiKey, model, FACT_SYSTEM, prompt, "fact");
+	return /^NADA\.?$/i.test(result.text) ? { ...result, text: "" } : result;
 };
 
-const ask = async (apiKey: string, model: AiModel, system: string, prompt: string): Promise<string> => {
+/** USD per million tokens [input, output] (Anthropic list prices; Haiku 5.5 price for prompts up to 100K tokens) */
+const PRICES: Record<string, [number, number]> = {
+	"claude-opus-5-5": [4, 20],
+	"claude-sonnet-5-5": [2, 10],
+	"claude-sonnet-5": [2, 10],
+	"claude-haiku-5-5": [0.1, 0.5],
+	"claude-opus-4-8": [5, 25],
+};
+
+export type AiResult = { text: string; usd: number; model: string };
+
+/** One JSON line per AI call in %APPDATA%\TIDAL\luna-dj\ai-usage.jsonl (local only, no keys or text) */
+const logUsage = (entry: Record<string, unknown>) => {
+	const dir = path.join(app.getPath("userData"), "luna-dj");
+	mkdir(dir, { recursive: true })
+		.then(() => appendFile(path.join(dir, "ai-usage.jsonl"), `${JSON.stringify(entry)}\n`))
+		.catch(() => {});
+};
+
+const ask = async (apiKey: string, model: AiModel, system: string, prompt: string, kind: "intro" | "fact"): Promise<AiResult> => {
 	const response = await getClient(apiKey.trim())
 		.beta.messages.create({
 		model,
@@ -104,6 +126,13 @@ const ask = async (apiKey: string, model: AiModel, system: string, prompt: strin
 			throw err;
 		});
 
+	// Real cost of this call from the token counts Anthropic reports (thinking tokens are included in output_tokens)
+	const [inPrice, outPrice] = PRICES[response.model] ?? PRICES[model];
+	const u = response.usage;
+	const inputTokens = u.input_tokens + (u.cache_creation_input_tokens ?? 0) * 1.25 + (u.cache_read_input_tokens ?? 0) * 0.1;
+	const usd = (inputTokens * inPrice + u.output_tokens * outPrice) / 1_000_000;
+	logUsage({ t: new Date().toISOString(), kind, model: response.model, in: u.input_tokens, out: u.output_tokens, usd });
+
 	if (response.stop_reason === "refusal") throw new Error("Claude no quiso escribir esta frase");
 	const text = response.content
 		.flatMap((b) => (b.type === "text" ? [b.text] : []))
@@ -112,5 +141,5 @@ const ask = async (apiKey: string, model: AiModel, system: string, prompt: strin
 		.replace(/\s+/g, " ")
 		.trim();
 	if (!text) throw new Error("Respuesta vacía de Claude");
-	return text;
+	return { text, usd, model: response.model };
 };

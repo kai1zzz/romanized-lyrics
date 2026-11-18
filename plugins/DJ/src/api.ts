@@ -32,6 +32,20 @@ export const favoriteTracks = async (): Promise<string[]> => {
 	return json.items?.flatMap((i) => (i.item?.id !== undefined ? [String(i.item.id)] : [])) ?? [];
 };
 
+/** Tidal's artist biography as plain text (the same bio shown on the artist page), or undefined */
+export const artistBio = async (artistId: redux.ItemId): Promise<string | undefined> => {
+	const json = await getJson<{ text?: string; source?: string }>(`https://desktop.tidal.com/v1/artists/${artistId}/bio?${TidalApi.queryArgs()}`).catch(
+		() => undefined,
+	);
+	const text = json?.text
+		?.replace(/\[wimpLink[^\]]*\](.*?)\[\/wimpLink\]/g, "$1") // [wimpLink artistId="1"]Name[/wimpLink] -> Name
+		.replace(/<[^>]+>/g, " ")
+		.replace(/&(amp|lt|gt|quot|apos|nbsp|#39|#x27);/g, (m) => ({ "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&nbsp;": " " })[m] ?? "'")
+		.replace(/\s+/g, " ")
+		.trim();
+	return text ? text.slice(0, 4000) : undefined;
+};
+
 export type Recommendations = { ids: string[]; errors: string[] };
 
 /** Recommendations for a track, interleaving both sources (so if one fails the other still works) */

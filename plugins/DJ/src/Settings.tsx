@@ -228,8 +228,8 @@ export const Settings = () => {
 			)}
 
 			<LunaSwitchSetting
-				title="Comentarios a mitad de canción"
-				desc="De vez en cuando el DJ dice algo breve a mitad de una canción (solo en canciones de más de 2 minutos). Con IA usa siempre Claude Haiku 5.5, el modelo más barato."
+				title="Datos curiosos a mitad de canción"
+				desc="De vez en cuando, a mitad de una canción (de más de 2 minutos), el DJ cuenta un dato curioso sobre la canción o el artista, sacado de Wikipedia y de la biografía de Tidal. Necesita los comentarios con IA (usa siempre Claude Haiku 5.5). Si no encuentra nada interesante, no dice nada."
 				checked={midComments}
 				onChange={(_: unknown, checked?: boolean) => setMidComments((settings.midComments = checked ?? false))}
 			/>

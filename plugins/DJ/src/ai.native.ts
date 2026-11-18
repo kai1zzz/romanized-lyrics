@@ -50,12 +50,47 @@ export const aiIntro = async (apiKey: string, model: AiModel, track: TrackInfo, 
 	]
 		.filter(Boolean)
 		.join("\n");
+	return ask(apiKey, model, SYSTEM, prompt);
+};
 
+const FACT_SYSTEM = `Eres DJ Kai, un DJ virtual personal que habla en voz alta en Tidal, como un locutor de radio cercano.
+
+Mientras suena una canción cuentas UN dato curioso sobre la canción o sobre el artista, tomado de las fuentes que te paso (Wikipedia y la biografía de Tidal).
+
+Reglas:
+- Usa SOLO información que aparezca en las fuentes. No añadas nada de tu memoria, no adornes cifras ni fechas, no deduzcas.
+- Elige lo más sorprendente o divertido: el origen del nombre, cómo se formó el grupo, de qué trata la canción, un récord, una colaboración inesperada, una anécdota de la grabación. Evita lo obvio (que es un cantante, su género musical, que tiene muchos fans).
+- Prefiere datos sobre la canción si los hay; si no, sobre el artista.
+- No repitas datos que ya contaste (te los paso).
+- Si las fuentes no tienen nada interesante, o no está claro que hablen de este artista, responde exactamente: NADA
+- Español neutro, tuteando. Entre 12 y 35 palabras. Varía el arranque: no empieces siempre con «¿Sabías que…?».
+- Se va a leer con voz sintética: sin emojis, comillas, paréntesis, listas ni acotaciones.
+- No menciones Wikipedia ni «las fuentes». Responde solo con la frase o con NADA.`;
+
+/**
+ * A curious fact about `track` taken only from `sources`. Returns "" when there's nothing worth saying.
+ * Throws on API errors.
+ */
+export const aiFact = async (apiKey: string, model: AiModel, track: TrackInfo, sources: string, alreadyTold: string[]): Promise<string> => {
+	if (!sources.trim()) return "";
+	const prompt = [
+		`Canción que está sonando: ${describe(track)}.`,
+		alreadyTold.length ? `Datos que ya contaste antes (no los repitas):\n- ${alreadyTold.join("\n- ")}` : undefined,
+		`Fuentes:\n${sources}`,
+		"Escribe el dato curioso o NADA.",
+	]
+		.filter(Boolean)
+		.join("\n\n");
+	const text = await ask(apiKey, model, FACT_SYSTEM, prompt);
+	return /^NADA\.?$/i.test(text) ? "" : text;
+};
+
+const ask = async (apiKey: string, model: AiModel, system: string, prompt: string): Promise<string> => {
 	const response = await getClient(apiKey.trim())
 		.beta.messages.create({
 		model,
 		max_tokens: 2048,
-		system: SYSTEM,
+		system,
 		messages: [{ role: "user", content: prompt }],
 		output_config: { effort: "low" }, // a one-line quip doesn't need deep thinking
 		// On a policy refusal, let the API retry on a fallback model (not available for Haiku)
@@ -69,7 +104,7 @@ export const aiIntro = async (apiKey: string, model: AiModel, track: TrackInfo, 
 			throw err;
 		});
 
-	if (response.stop_reason === "refusal") throw new Error("Claude no quiso escribir esta presentación");
+	if (response.stop_reason === "refusal") throw new Error("Claude no quiso escribir esta frase");
 	const text = response.content
 		.flatMap((b) => (b.type === "text" ? [b.text] : []))
 		.join(" ")

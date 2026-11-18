@@ -1,10 +1,11 @@
 import { type LunaUnload, Tracer } from "@luna/core";
 import { MediaItem, PlayState, redux } from "@luna/lib";
 
-import { aiIntro } from "./ai.native";
-import { favoriteTracks, recommendations } from "./api";
+import { aiFact, aiIntro } from "./ai.native";
+import { artistBio, favoriteTracks, recommendations } from "./api";
+import { wikipediaFacts } from "./facts.native";
 import { mountButton } from "./button";
-import { DJ_INTRO, greeting, midComment, timeContext, type TrackInfo, trackIntro } from "./lines";
+import { DJ_INTRO, greeting, timeContext, type TrackInfo, trackIntro } from "./lines";
 import { settings } from "./Settings";
 import { isAvoidedArtist, isSkippedTrack, recordSkip } from "./skips";
 import { speak, stopSpeaking, type VoiceOptions } from "./voice";
@@ -249,15 +250,39 @@ const planMidComment = (item: MediaItem) => {
 	const duration = item.tidalItem.duration ?? 0;
 	if (songsSinceMid < settings.midEvery || duration < 120) return;
 	songsSinceMid = 0;
-	const info = infoOf(item);
-	// Mid-song lines always use Haiku: they're extra, so they should cost almost nothing
-	const text = aiReady()
-		? aiIntro(settings.anthropicKey, "claude-haiku-5-5", info, undefined, { kind: "mid", time: timeContext() }).catch((err: unknown) => {
-				trace.warn("AI mid comment", err);
-				return midComment(info);
-			})
-		: Promise.resolve(midComment(info));
+	// Curious facts need Claude; without it the DJ stays quiet rather than saying filler
+	if (!aiReady()) return;
+	const text = curiousFact(item).then((fact) => {
+		// Nothing worth saying about this one: try again on the next song
+		if (!fact) songsSinceMid = settings.midEvery - 1;
+		return fact;
+	});
 	midPlan = { id: String(item.id), at: Math.min(duration * 0.45, 100), text, done: false };
+};
+
+/** Facts already told per artist, so the DJ doesn't repeat itself */
+const toldFacts = new Map<string, string[]>();
+
+/**
+ * A curious fact about the track or its artist, taken from Wikipedia + Tidal's artist bio (not from the model's memory).
+ * Mid-song lines always use Haiku: they're extra, so they should cost almost nothing.
+ */
+const curiousFact = async (item: MediaItem): Promise<string> => {
+	const info = infoOf(item);
+	const artistId = item.tidalItem.artists?.[0]?.id;
+	const artistKey = String(artistId ?? info.artist);
+	const [wiki, bio] = await Promise.all([
+		wikipediaFacts(info.title, info.artist).catch(() => ""),
+		artistId !== undefined ? artistBio(artistId) : Promise.resolve(undefined),
+	]);
+	const sources = [wiki, bio ? `Biografía de Tidal sobre ${info.artist}:\n${bio}` : ""].filter(Boolean).join("\n\n");
+	const told = toldFacts.get(artistKey) ?? [];
+	const fact = await aiFact(settings.anthropicKey, "claude-haiku-5-5", info, sources, told).catch((err: unknown) => {
+		trace.warn("AI fact", err);
+		return "";
+	});
+	if (fact) toldFacts.set(artistKey, [...told, fact].slice(-8));
+	return fact;
 };
 
 const tick = setInterval(() => {

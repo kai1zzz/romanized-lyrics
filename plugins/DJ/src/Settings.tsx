@@ -46,28 +46,51 @@ type Change = { target: { value: unknown } };
 /** A settings row with "Probar" and "Detener" side by side */
 const TestButtons = (props: { title: string; desc: React.ReactNode; playing: boolean; onTest: () => void; onStop: () => void }) => (
 	<LunaSetting title={props.title} desc={props.desc}>
-		{/* Same right edge and height as Luna's own button rows (e.g. "Olvidar") */}
-		<div style={{ width: "100%", display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, marginRight: 16 }}>
-			<LunaButton onClick={props.onTest} sx={{ height: 40, margin: 0, minWidth: 96 }}>
-				Probar
-			</LunaButton>
-			<LunaButton
-				onClick={props.onStop}
-				disabled={!props.playing}
-				color="error"
-				sx={{
-					height: 40,
-					margin: 0,
-					minWidth: 96,
-					// Keep it readable while disabled instead of almost invisible
-					"&.Mui-disabled": { backgroundColor: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.38)" },
-				}}
-			>
-				Detener
-			</LunaButton>
+		{/* Each button in its own box: LunaButton adds `margin-right: auto`, which would push them apart */}
+		<div className="kai-test-buttons">
+			<span>
+				<LunaButton onClick={props.onTest}>Probar</LunaButton>
+			</span>
+			<span>
+				<LunaButton onClick={props.onStop} disabled={!props.playing} color="error">
+					Detener
+				</LunaButton>
+			</span>
 		</div>
 	</LunaSetting>
 );
+
+// Layout for the Probar/Detener row, as plain CSS so it doesn't depend on MUI's sx handling
+const TEST_BUTTONS_CSS = `
+.kai-test-buttons {
+	flex: 1 1 auto;
+	display: flex;
+	justify-content: flex-end;
+	align-items: center;
+	gap: 8px;
+	margin-right: 16px;
+}
+.kai-test-buttons > span { display: inline-flex; }
+.kai-test-buttons .MuiButton-root {
+	margin: 0 !important;
+	height: 40px;
+	min-width: 104px;
+}
+/* Disabled "Detener": readable grey instead of almost invisible */
+.kai-test-buttons .MuiButton-root.Mui-disabled {
+	background-color: rgba(255, 255, 255, 0.1) !important;
+	color: rgba(255, 255, 255, 0.45) !important;
+}
+`;
+const TestButtonsStyle = () => {
+	React.useEffect(() => {
+		const tag = document.createElement("style");
+		tag.textContent = TEST_BUTTONS_CSS;
+		document.head.appendChild(tag);
+		return () => tag.remove();
+	}, []);
+	return null;
+};
 
 export const Settings = () => {
 	const [enabled, setEnabled] = React.useState(settings.enabled);
@@ -147,6 +170,7 @@ export const Settings = () => {
 
 	return (
 		<LunaSettings>
+			<TestButtonsStyle />
 			<LunaSwitchSetting
 				title="DJ activo"
 				desc="Cuando a la cola le quedan pocas canciones, el DJ añade al final canciones parecidas a lo que suena (canciones similares + radio de Tidal)."

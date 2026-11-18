@@ -341,11 +341,12 @@ export const onEnabledChange = async () => {
 };
 
 /** "Probar comentario IA" button in the settings */
-export const testAiComment = async () => {
+export const testAiComment = async (onText: (text: string) => void, stillWanted: () => boolean) => {
 	const current = await MediaItem.fromPlaybackContext().catch(() => undefined);
 	const track: TrackInfo = current ? infoOf(current) : { title: "Bohemian Rhapsody", artist: "Queen", album: "A Night at the Opera", year: "1975" };
 	const result = await aiIntro(settings.anthropicKey, settings.aiModel, track, undefined, { time: timeContext() });
-	await say(result.text);
+	onText(result.text); // show it while it's being read
+	if (stillWanted()) await say(result.text);
 	return result.text;
 };
 

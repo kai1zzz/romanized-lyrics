@@ -2,7 +2,9 @@ import React from "react";
 
 import { ReactiveStore } from "@luna/core";
 import {
+	LunaButton,
 	LunaButtonSetting,
+	LunaSetting,
 	LunaNumberSetting,
 	LunaSecureTextSetting,
 	LunaSelectItem,
@@ -17,7 +19,7 @@ import type { AiModel } from "./ai.native";
 import { type AzureVoice, listVoices } from "./azure.native";
 import { DJ_INTRO } from "./lines";
 import { forgetSkips, skipStats } from "./skips";
-import { getVoices } from "./voice";
+import { getVoices, stopSpeaking } from "./voice";
 
 export type VoiceEngine = "windows" | "azure";
 
@@ -41,6 +43,18 @@ export const settings = await ReactiveStore.getPluginStorage("KaiDJ", {
 
 type Change = { target: { value: unknown } };
 
+/** A settings row with "Probar" and "Detener" side by side */
+const TestButtons = (props: { title: string; desc: React.ReactNode; playing: boolean; onTest: () => void; onStop: () => void }) => (
+	<LunaSetting title={props.title} desc={props.desc}>
+		<div style={{ marginLeft: "auto", marginRight: 16, display: "flex", gap: 8, flexShrink: 0 }}>
+			<LunaButton onClick={props.onTest}>Probar</LunaButton>
+			<LunaButton onClick={props.onStop} disabled={!props.playing} color="error" variant="outlined">
+				Detener
+			</LunaButton>
+		</div>
+	</LunaSetting>
+);
+
 export const Settings = () => {
 	const [enabled, setEnabled] = React.useState(settings.enabled);
 	const [ahead, setAhead] = React.useState(settings.ahead);
@@ -59,6 +73,31 @@ export const Settings = () => {
 	const [midComments, setMidComments] = React.useState(settings.midComments);
 	const [midEvery, setMidEvery] = React.useState(settings.midEvery);
 	const [skips, setSkips] = React.useState(skipStats());
+
+	// Which "Probar" button is playing: that one turns into "Detener"
+	const [testing, setTesting] = React.useState<"none" | "voice" | "ai">("none");
+	const testRef = React.useRef<"none" | "voice" | "ai">("none");
+	const startTest = (which: "voice" | "ai") => {
+		testRef.current = which;
+		setTesting(which);
+	};
+	const endTest = (which: "voice" | "ai") => {
+		if (testRef.current !== which) return;
+		testRef.current = "none";
+		setTesting("none");
+	};
+	const stopTest = () => {
+		testRef.current = "none";
+		setTesting("none");
+		stopSpeaking(); // also brings the music volume back
+	};
+	React.useEffect(() => () => stopSpeaking(), []); // closing the settings stops a test too
+	/** Voice sample when picking a voice: "Detener" next to "Probar voz" stops it */
+	const previewVoice = (text: string) => {
+		stopTest();
+		startTest("voice");
+		say(text).finally(() => endTest("voice"));
+	};
 
 	const [windowsVoices, setWindowsVoices] = React.useState<SpeechSynthesisVoice[]>([]);
 	const [azureVoices, setAzureVoices] = React.useState<AzureVoice[]>([]);
@@ -134,7 +173,7 @@ export const Settings = () => {
 					value={windowsVoices.some((v) => v.name === voiceName) ? voiceName : ""}
 					onChange={(e: Change) => {
 						setVoiceName((settings.voiceName = String(e.target.value)));
-						say("Hola, así sueno yo.");
+						previewVoice("Hola, así sueno yo.");
 					}}
 				>
 					{windowsVoices.map((v) => (
@@ -168,7 +207,7 @@ export const Settings = () => {
 						value={azureVoices.some((v) => v.name === azureVoice) ? azureVoice : ""}
 						onChange={(e: Change) => {
 							setAzureVoice((settings.azureVoice = String(e.target.value)));
-							say(`${DJ_INTRO} Así sueno yo.`);
+							previewVoice(`${DJ_INTRO} Así sueno yo.`);
 						}}
 					>
 						{azureVoices.map((v) => (
@@ -181,9 +220,17 @@ export const Settings = () => {
 				</>
 			)}
 
-			<LunaButtonSetting title="Probar voz" desc="Reproduce una presentación de ejemplo con la voz elegida." onClick={() => say(`${DJ_INTRO} Si te gustó esa, esta te va a encantar: Bohemian Rhapsody, de Queen.`)}>
-				Probar
-			</LunaButtonSetting>
+			<TestButtons
+				title="Probar voz"
+				desc="Reproduce una presentación de ejemplo con la voz elegida."
+				playing={testing === "voice"}
+				onStop={stopTest}
+				onTest={() => {
+					stopTest();
+					startTest("voice");
+					say(`${DJ_INTRO} Si te gustó esa, esta te va a encantar: Bohemian Rhapsody, de Queen.`).finally(() => endTest("voice"));
+				}}
+			/>
 
 			<LunaSwitchSetting
 				title="Comentarios con IA (Claude)"
@@ -212,18 +259,23 @@ export const Settings = () => {
 						<LunaSelectItem value="claude-sonnet-5-5">Claude Sonnet 5.5</LunaSelectItem>
 						<LunaSelectItem value="claude-haiku-5-5">Claude Haiku 5.5</LunaSelectItem>
 					</LunaSelectSetting>
-					<LunaButtonSetting
+					<TestButtons
 						title="Probar comentario IA"
 						desc={aiStatus || "Pide a Claude una presentación de la canción que suena y la dice en voz alta."}
-						onClick={() => {
+						playing={testing === "ai"}
+						onStop={stopTest}
+						onTest={() => {
+							stopTest();
+							startTest("ai");
 							setAiStatus("Escribiendo…");
-							testAiComment()
-								.then((text) => setAiStatus(`«${text}»`))
-								.catch((err: unknown) => setAiStatus(`Error: ${err instanceof Error ? err.message : String(err)}`));
+							testAiComment(
+								(text) => setAiStatus(`«${text}»`),
+								() => testRef.current === "ai", // don't speak if you pressed Detener while it was writing
+							)
+								.catch((err: unknown) => setAiStatus(`Error: ${err instanceof Error ? err.message : String(err)}`))
+								.finally(() => endTest("ai"));
 						}}
-					>
-						Probar
-					</LunaButtonSetting>
+					/>
 				</>
 			)}
 

@@ -46,9 +46,23 @@ type Change = { target: { value: unknown } };
 /** A settings row with "Probar" and "Detener" side by side */
 const TestButtons = (props: { title: string; desc: React.ReactNode; playing: boolean; onTest: () => void; onStop: () => void }) => (
 	<LunaSetting title={props.title} desc={props.desc}>
-		<div style={{ marginLeft: "auto", marginRight: 16, display: "flex", gap: 8, flexShrink: 0 }}>
-			<LunaButton onClick={props.onTest}>Probar</LunaButton>
-			<LunaButton onClick={props.onStop} disabled={!props.playing} color="error" variant="outlined">
+		{/* Same right edge and height as Luna's own button rows (e.g. "Olvidar") */}
+		<div style={{ width: "100%", display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, marginRight: 16 }}>
+			<LunaButton onClick={props.onTest} sx={{ height: 40, margin: 0, minWidth: 96 }}>
+				Probar
+			</LunaButton>
+			<LunaButton
+				onClick={props.onStop}
+				disabled={!props.playing}
+				color="error"
+				sx={{
+					height: 40,
+					margin: 0,
+					minWidth: 96,
+					// Keep it readable while disabled instead of almost invisible
+					"&.Mui-disabled": { backgroundColor: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.38)" },
+				}}
+			>
 				Detener
 			</LunaButton>
 		</div>

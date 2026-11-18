@@ -34,6 +34,7 @@ export const settings = await ReactiveStore.getPluginStorage("KaiDJ", {
 	azureVoice: "es-ES-AlvaroNeural",
 	announceAll: false,
 	duckPercent: 35,
+	voicePercent: 100,
 	aiComments: false,
 	anthropicKey: "",
 	aiModel: "claude-opus-5-5" as AiModel,
@@ -103,6 +104,7 @@ export const Settings = () => {
 	const [azureVoice, setAzureVoice] = React.useState(settings.azureVoice);
 	const [announceAll, setAnnounceAll] = React.useState(settings.announceAll);
 	const [duckPercent, setDuckPercent] = React.useState(settings.duckPercent);
+	const [voicePercent, setVoicePercent] = React.useState(settings.voicePercent);
 	const [aiComments, setAiComments] = React.useState(settings.aiComments);
 	const [anthropicKey, setAnthropicKey] = React.useState(settings.anthropicKey);
 	const [aiModel, setAiModel] = React.useState<AiModel>(settings.aiModel);
@@ -349,6 +351,14 @@ export const Settings = () => {
 				desc="Si está activado, la voz presenta también las canciones que no eligió el DJ."
 				checked={announceAll}
 				onChange={(_: unknown, checked?: boolean) => setAnnounceAll((settings.announceAll = checked ?? false))}
+			/>
+			<LunaNumberSetting
+				title="Volumen de la voz (%)"
+				desc="La voz sigue el volumen de Tidal: si bajas la música, el DJ también habla más bajo. 100 = igual que la música; súbelo si la voz se oye floja, bájalo si se oye fuerte."
+				min={20}
+				max={200}
+				value={voicePercent}
+				onNumber={(n: number) => setVoicePercent((settings.voicePercent = n))}
 			/>
 			<LunaNumberSetting
 				title="Volumen de la música mientras habla (%)"

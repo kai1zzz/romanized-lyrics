@@ -216,6 +216,7 @@ export const voiceOptions = (): VoiceOptions => ({
 	azureRegion: settings.azureRegion,
 	azureVoice: settings.azureVoice,
 	duckPercent: settings.duckPercent,
+	voicePercent: settings.voicePercent,
 	onAzureError: (err) => {
 		// Warn once per session, then keep falling back to the Windows voice quietly
 		if (azureWarned) return trace.err.withContext("Azure")(err);

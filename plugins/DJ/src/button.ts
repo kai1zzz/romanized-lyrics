@@ -58,6 +58,15 @@ const CSS = `
 	z-index: 9999 !important;
 	backdrop-filter: blur(8px);
 }
+/* Narrow window: round icon-only button, same size as Tidal's icon buttons */
+#${BUTTON_ID}.kai-compact {
+	width: var(--kai-h, 36px) !important;
+	min-width: 0 !important;
+	padding: 0 !important;
+	gap: 0 !important;
+	border-radius: 50% !important;
+}
+#${BUTTON_ID}.kai-compact .kai-label { display: none; }
 @keyframes kai-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { #${BUTTON_ID}.kai-on .kai-icon { animation: none; } }
 `;
@@ -115,6 +124,28 @@ export const mountButton = (unloads: LunaUnloads, opts: { isOn: () => boolean; o
 		}, 8000);
 	};
 
+	// Switch to the round icon-only version when the full pill would run into the centre of the player
+	// (play controls + progress bar). Measured against where its left edge would be at full width.
+	let fullWidth = 0;
+	const fit = () => {
+		if (!button.isConnected || button.classList.contains("kai-floating")) return;
+		const controls = document.querySelector('[data-test="play-controls"]');
+		if (!controls) return;
+		const centre = Math.max(controls.getBoundingClientRect().right, controls.parentElement?.getBoundingClientRect().right ?? 0);
+		const rect = button.getBoundingClientRect();
+		if (!button.classList.contains("kai-compact")) fullWidth = rect.width;
+		if (fullWidth === 0) return;
+		// The right group is right-aligned: our right edge stays put, so this is where the full pill would start
+		const leftIfFull = rect.right - fullWidth;
+		const compact = button.classList.contains("kai-compact");
+		// A bit of hysteresis so it doesn't flicker between the two forms right at the limit
+		if (!compact && leftIfFull < centre + 12) button.classList.add("kai-compact");
+		else if (compact && leftIfFull > centre + 32) button.classList.remove("kai-compact");
+	};
+	window.addEventListener("resize", fit);
+	const resizeObserver = new ResizeObserver(() => fit());
+	resizeObserver.observe(document.body);
+
 	let scheduled = false;
 	const observer = new MutationObserver(() => {
 		if (scheduled) return;
@@ -122,13 +153,17 @@ export const mountButton = (unloads: LunaUnloads, opts: { isOn: () => boolean; o
 		requestAnimationFrame(() => {
 			scheduled = false;
 			place();
+			fit();
 		});
 	});
 	observer.observe(document.body, { childList: true, subtree: true });
 	place();
+	requestAnimationFrame(fit);
 
 	unloads.add(() => {
 		observer.disconnect();
+		resizeObserver.disconnect();
+		window.removeEventListener("resize", fit);
 		clearTimeout(floatingTimer);
 		button.remove();
 	});

@@ -67,6 +67,8 @@ const CSS = `
 	border-radius: 50% !important;
 }
 #${BUTTON_ID}.kai-compact .kai-label { display: none; }
+/* Not even the round button fits: hide it (the DJ keeps working) until the window is wider */
+#${BUTTON_ID}.kai-hidden { display: none !important; }
 @keyframes kai-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { #${BUTTON_ID}.kai-on .kai-icon { animation: none; } }
 `;
@@ -124,23 +126,34 @@ export const mountButton = (unloads: LunaUnloads, opts: { isOn: () => boolean; o
 		}, 8000);
 	};
 
-	// Switch to the round icon-only version when the full pill would run into the centre of the player
-	// (play controls + progress bar). Measured against where its left edge would be at full width.
-	let fullWidth = 0;
+	// Three sizes depending on the room between the centre of the player (controls + progress bar + times)
+	// and the next Tidal button: full pill, round icon-only, or hidden (the DJ keeps working, the button comes back
+	// when there's room). Measured from the neighbour's position, which doesn't depend on our own size.
+	let fullWidth = 110; // replaced by the real width the first time the pill is shown
 	const fit = () => {
 		if (!button.isConnected || button.classList.contains("kai-floating")) return;
-		const controls = document.querySelector('[data-test="play-controls"]');
-		if (!controls) return;
-		const centre = Math.max(controls.getBoundingClientRect().right, controls.parentElement?.getBoundingClientRect().right ?? 0);
-		const rect = button.getBoundingClientRect();
-		if (!button.classList.contains("kai-compact")) fullWidth = rect.width;
-		if (fullWidth === 0) return;
-		// The right group is right-aligned: our right edge stays put, so this is where the full pill would start
-		const leftIfFull = rect.right - fullWidth;
-		const compact = button.classList.contains("kai-compact");
-		// A bit of hysteresis so it doesn't flicker between the two forms right at the limit
-		if (!compact && leftIfFull < centre + 12) button.classList.add("kai-compact");
-		else if (compact && leftIfFull > centre + 32) button.classList.remove("kai-compact");
+		const next = button.nextElementSibling;
+		if (!next) return;
+		const rightEdge = next.getBoundingClientRect().left - 6; // our margin-right
+
+		// Right edge of the centre: play controls, the progress bar and the box around it (with the times),
+		// ignoring any box that's as wide as the whole bar
+		let centre = 0;
+		for (const el of [document.querySelector('[data-test="play-controls"]'), document.querySelector('[data-test="progress-bar"]')]) {
+			for (const box of [el, el?.parentElement, el?.parentElement?.parentElement]) {
+				const r = box?.getBoundingClientRect();
+				if (r && r.width > 0 && r.right < rightEdge) centre = Math.max(centre, r.right);
+			}
+		}
+		if (centre === 0) return;
+
+		const isFull = !button.classList.contains("kai-compact") && !button.classList.contains("kai-hidden");
+		if (isFull && button.offsetWidth > 0) fullWidth = button.offsetWidth;
+		const compactWidth = button.offsetHeight || 36;
+		const room = rightEdge - centre - 6; // our margin-left
+		const mode = room >= fullWidth + 12 ? "full" : room >= compactWidth + 8 ? "compact" : "hidden";
+		button.classList.toggle("kai-compact", mode === "compact");
+		button.classList.toggle("kai-hidden", mode === "hidden");
 	};
 	window.addEventListener("resize", fit);
 	const resizeObserver = new ResizeObserver(() => fit());

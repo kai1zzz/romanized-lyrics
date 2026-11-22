@@ -225,7 +225,10 @@ export const voiceOptions = (): VoiceOptions => ({
 	},
 });
 
-export const say = (text: string) => speak(text, voiceOptions()).catch(trace.err.withContext("speak"));
+export const say = (text: string, stillWanted?: () => boolean) => speak(text, voiceOptions(), stillWanted).catch(trace.err.withContext("speak"));
+
+/** Bumped on every track change: lines about an earlier track are dropped instead of queued */
+let announceGen = 0;
 
 /** Whether the DJ already introduced itself this session */
 let introduced = false;
@@ -296,7 +299,8 @@ const tick = setInterval(() => {
 		midPlan.done = true;
 		const plan = midPlan;
 		Promise.race([plan.text, new Promise<string>((r) => setTimeout(() => r(""), 4000))]).then((text) => {
-			if (text && session && now?.id === plan.id) say(text);
+			const stillCurrent = () => session && now?.id === plan.id;
+			if (text && stillCurrent()) say(text, stillCurrent);
 		});
 	}
 }, 1000);
@@ -316,7 +320,12 @@ MediaItem.onMediaTransition(unloads, async (item) => {
 			trace.log(`Aprendido: saltaste "${djPicks.get(prev.id)?.title ?? prev.id}"`);
 		}
 	}
+	// The DJ itself changed the track (starting a session from a favourite): don't cut its own greeting
+	const djChangedTrack = ignoreNextSkip;
 	ignoreNextSkip = false;
+	// New track: cut whatever the DJ was saying about the previous one, and drop anything still queued for it
+	const gen = ++announceGen;
+	if (session && !djChangedTrack) stopSpeaking();
 	now = { id, artists: (item.tidalItem.artists ?? []).map((a) => a.id), duration: item.tidalItem.duration ?? 0, pos: 0 };
 	planMidComment(item);
 
@@ -328,9 +337,10 @@ MediaItem.onMediaTransition(unloads, async (item) => {
 		introduced = true;
 		const textPromise = introFor(item, seed);
 		// Let the track start before talking over it
+		const stillCurrent = () => session && gen === announceGen && now?.id === id;
 		setTimeout(async () => {
 			const text = await textPromise;
-			if (session && String((await MediaItem.fromPlaybackContext().catch(() => undefined))?.id) === id) say(intro + text);
+			if (stillCurrent()) say(intro + text, stillCurrent);
 		}, 800);
 	}
 	topUp().catch(trace.err.withContext("topUp"));

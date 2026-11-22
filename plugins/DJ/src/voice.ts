@@ -120,10 +120,12 @@ let speaking: Promise<void> | undefined;
  * Speaks `text`, lowering the music to `duckPercent`% of its volume while talking and bringing it back afterwards.
  * If the user moves the volume while the DJ talks, their new volume is kept.
  */
-export const speak = async (text: string, o: VoiceOptions) => {
+export const speak = async (text: string, o: VoiceOptions, stillWanted: () => boolean = () => true) => {
 	text = pronounce(text);
 	await speaking; // one announcement at a time
 	speaking = (async () => {
+		// Dropped while waiting its turn (e.g. you skipped the track it was about)
+		if (!stillWanted()) return;
 		// Prepare the audio first (Azure takes a moment) so the music ducks right when the voice starts
 		let play: (volume: number) => Promise<void>;
 		if (o.engine === "azure" && o.azureKey && o.azureRegion && o.azureVoice) {
@@ -134,6 +136,9 @@ export const speak = async (text: string, o: VoiceOptions) => {
 				play = await prepareWindows(text, o.voiceName);
 			}
 		} else play = await prepareWindows(text, o.voiceName);
+
+		// Dropped while the audio was being prepared
+		if (!stillWanted()) return;
 
 		const original = getVolume();
 		// Muted or at zero: the DJ stays quiet too

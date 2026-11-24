@@ -200,8 +200,39 @@ const parseLrc = (subtitles: string): Cue[] => {
 	return cues.map((c, i) => ({ ...c, end: cues[i + 1]?.start ?? c.start + 8 }));
 };
 
-/** Seconds the fill takes: the line's time slot, but not the whole instrumental break if there's a long gap */
-const fillDuration = (cue: Cue, romaji: string) => Math.min(cue.end - cue.start, Math.max(1.5, romaji.length / 5 + 1));
+/** Letters actually sung (spaces and punctuation don't take time) */
+const sungLength = (romaji: string) => romaji.replace(/[^\p{L}\p{N}]/gu, "").length;
+
+/**
+ * How fast this song is sung, in romanized letters per second.
+ * A line's time slot runs until the next line starts, so it includes the breath/pause after it: slots overestimate
+ * the singing time. The lines sung with the least pause (the fast end of the per-line rates) give the real pace.
+ */
+const singingRate = (cues: Cue[]): number | undefined => {
+	const rates: number[] = [];
+	for (const cue of cues) {
+		const romaji = lineMap.get(cue.key);
+		const slot = cue.end - cue.start;
+		if (!romaji || slot < 0.8 || slot > 20) continue;
+		const letters = sungLength(romaji);
+		if (letters >= 6) rates.push(letters / slot);
+	}
+	if (rates.length < 3) return undefined;
+	rates.sort((a, b) => a - b);
+	const fast = rates[Math.min(rates.length - 1, Math.floor(rates.length * 0.9))]; // 90th percentile
+	return Math.max(5, Math.min(30, fast));
+};
+const rates = new WeakMap<Cue[], number | null>();
+
+/** Seconds the fill takes: the time to sing the line at the song's pace, leaving a breath at the end of its slot */
+const fillDuration = (cues: Cue[], cue: Cue, romaji: string) => {
+	const slot = cue.end - cue.start;
+	if (!rates.has(cues) || rates.get(cues) === null) rates.set(cues, singingRate(cues) ?? null);
+	const rate = rates.get(cues);
+	const speed = Math.max(0.5, settings.karaokeSpeed / 100); // user fine-tuning, 100 = estimated pace
+	const estimate = rate ? sungLength(romaji) / (rate * speed) : romaji.length / (5 * speed) + 1;
+	return Math.max(0.6, Math.min(slot * 0.85, estimate));
+};
 
 let filled: HTMLElement | undefined;
 const clearFill = () => {
@@ -242,7 +273,7 @@ const frame = () => {
 		span.classList.add("kai-karaoke");
 		filled = span;
 	}
-	const progress = Math.max(0, Math.min(1, (t - cue.start) / fillDuration(cue, span.textContent ?? "")));
+	const progress = Math.max(0, Math.min(1, (t - cue.start) / fillDuration(cues, cue, span.textContent ?? "")));
 	span.style.setProperty("--kai-fill", `${(progress * 106 - 3).toFixed(2)}%`); // -3%..103% so both ends are clean
 };
 raf = requestAnimationFrame(frame);

@@ -1,7 +1,7 @@
 import React from "react";
 
 import { ReactiveStore } from "@luna/core";
-import { LunaSelectItem, LunaSelectSetting, LunaSettings, LunaSwitchSetting } from "@luna/ui";
+import { LunaNumberSetting, LunaSelectItem, LunaSelectSetting, LunaSettings, LunaSwitchSetting } from "@luna/ui";
 
 import { applyMode, applySmooth } from ".";
 
@@ -11,12 +11,14 @@ export const settings = await ReactiveStore.getPluginStorage("RomajiLyrics", {
 	mode: "below" as RomajiMode,
 	smoothLyrics: true,
 	karaoke: true,
+	karaokeSpeed: 100,
 });
 
 export const Settings = () => {
 	const [mode, setMode] = React.useState<RomajiMode>(settings.mode);
 	const [smooth, setSmooth] = React.useState(settings.smoothLyrics);
 	const [karaoke, setKaraoke] = React.useState(settings.karaoke);
+	const [karaokeSpeed, setKaraokeSpeed] = React.useState(settings.karaokeSpeed);
 	return (
 		<LunaSettings>
 			<LunaSelectSetting
@@ -38,6 +40,16 @@ export const Settings = () => {
 					desc="La romanización de la línea que se está cantando se va iluminando de izquierda a derecha; el original se queda iluminado. Tidal sincroniza por línea, no por palabra, así que el relleno sigue el tiempo de cada línea."
 					checked={karaoke}
 					onChange={(_: unknown, checked?: boolean) => setKaraoke((settings.karaoke = checked ?? false))}
+				/>
+			)}
+			{mode === "below" && karaoke && (
+				<LunaNumberSetting
+					title="Velocidad del karaoke (%)"
+					desc="Se calcula el ritmo de cada canción automáticamente. Súbelo si el relleno va atrasado respecto a la voz, bájalo si va adelantado."
+					min={50}
+					max={200}
+					value={karaokeSpeed}
+					onNumber={(n: number) => setKaraokeSpeed((settings.karaokeSpeed = n))}
 				/>
 			)}
 			<LunaSwitchSetting

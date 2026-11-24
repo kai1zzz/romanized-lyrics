@@ -39,6 +39,11 @@ check("japonés", (s) => romanizeJapanese(tokenizer, s, kanjiLookup), [
 	["ゲームセンターで遊ぼう", "geemusentaa de asobou"],
 	["慈悲深いが故灼ったかもう止まれない", "jihi fukai ga ko yatta ka mou tomarenai"],
 	["彷徨う夜に", "samayou yoru ni"],
+	["辿り着いた時は君に", "tadoritsuita toki wa kimi ni"],
+	["君が（君が）好きだ", "kimi ga (kimi ga) suki da"],
+	["あと何センチ近付けば良いんだろう", "ato nan senchi chikazukeba yoi ndarou"],
+	["田中君", "tanaka kun"],
+	["着物を着た", "kimono wo kita"],
 ]);
 
 check("coreano", romanizeKorean, [

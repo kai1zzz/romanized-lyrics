@@ -65,7 +65,8 @@ const attachesToPrevious = (token: IpadicFeatures, prev: IpadicFeatures | undefi
 		return false;
 	}
 	if (token.pos === "動詞" && (token.pos_detail_1 === "接尾" || token.pos_detail_1 === "非自立")) return true; // てる, しまう...
-	if (token.pos === "形容詞" && token.pos_detail_1 === "非自立") return true; // ～にくい, ～やすい
+	if (token.pos === "形容詞" && token.pos_detail_1 === "非自立" && prev.pos === "動詞") return true; // ～にくい, ～やすい (not 近付けば|良い)
+	if (token.surface_form === "着" && prev.pos === "動詞") return true; // 辿り|着いた -> tadoritsuita
 	if (token.pos === "助詞" && token.pos_detail_1 === "接続助詞" && ["動詞", "形容詞", "助動詞"].includes(prev.pos)) return true; // て, ば
 	return false;
 };
@@ -78,10 +79,21 @@ export type KanjiLookup = (kanji: string, verbStem: boolean) => string | undefin
 
 const KANJI = /[㐀-䶿一-鿿豈-﫿]/;
 
-const readingOf = (token: IpadicFeatures, next: IpadicFeatures | undefined, lookup?: KanjiLookup): string => {
+/** Context fixes for readings the dictionary gets wrong */
+const fixReading = (token: IpadicFeatures, prev: IpadicFeatures | undefined): string => {
+	const reading = token.reading!;
+	// Verb + 着く (辿り着く, 住み着く): the dictionary sometimes reads 着 as in 着る (ki) instead of 着く (tsu)
+	if (token.surface_form === "着" && reading === "キ" && prev?.pos === "動詞") return "ツ";
+	// 君 is "kun" only as a suffix after a name (田中君); anywhere else it's "kimi"
+	if (token.surface_form === "君" && reading === "クン" && !(prev?.pos === "名詞" && ["固有名詞", "一般"].includes(prev.pos_detail_1)))
+		return "キミ";
+	return reading;
+};
+
+const readingOf = (token: IpadicFeatures, next: IpadicFeatures | undefined, lookup?: KanjiLookup, prev?: IpadicFeatures): string => {
 	const surface = token.surface_form;
 	if (token.pos === "助詞" && PARTICLE_READINGS[surface]) return PARTICLE_READINGS[surface];
-	if (token.reading && token.reading !== "*") return token.reading;
+	if (token.reading && token.reading !== "*") return fixReading(token, prev);
 	// Unknown word with kanji (rare/literary kanji like 灼): read it character by character instead of leaving kanji
 	if (lookup && KANJI.test(surface)) {
 		const verbStem = next !== undefined && (next.pos === "動詞" || next.pos === "助動詞" || /^[っッ]/.test(next.surface_form));
@@ -127,7 +139,7 @@ export const romanizeJapanese = (tokenizer: Tokenizer<IpadicFeatures>, line: str
 		}
 
 		// Punctuation / symbols
-		if (token.pos === "記号" || PUNCTUATION[surface] !== undefined) {
+		if (token.pos === "記号" || PUNCTUATION[surface] !== undefined || /^[\p{P}\p{S}]+$/u.test(surface)) {
 			const mapped = [...surface].map((c) => PUNCTUATION[c] ?? c).join("");
 			flush();
 			words.push(mapped);
@@ -137,7 +149,7 @@ export const romanizeJapanese = (tokenizer: Tokenizer<IpadicFeatures>, line: str
 		}
 
 		// Kana readings are converted to romaji once the whole word is grouped (so っ+て -> tte works)
-		const reading = readingOf(token, tokens[i + 1], lookup);
+		const reading = readingOf(token, tokens[i + 1], lookup, prev);
 
 		if (!attachesToPrevious(token, prev, prevReading)) flush();
 		current += reading;

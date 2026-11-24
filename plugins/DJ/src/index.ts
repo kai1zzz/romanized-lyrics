@@ -124,6 +124,41 @@ const introFor = async (item: MediaItem, previous?: TrackInfo): Promise<string> 
 	}
 };
 
+/**
+ * Adds the DJ's picks to the queue right after the element at `afterIndex`.
+ *
+ * Tidal's "play next" / "add to queue" put tracks in "Tu cola de reproducción" (priority_keep), which are consumed
+ * after playing and never show up in the queue's history. On the cloud queue we insert them as part of what's playing
+ * (priority_none), like an album or mix track, so they stay in the history. If that doesn't land in the queue within a
+ * few seconds (Tidal changed something), fall back to the regular "play next" / "add to queue".
+ */
+const addToQueue = (picks: MediaItem[], afterIndex: number, fallback: "next" | "last", offset = 0) => {
+	const ids = picks.map((p) => (/^\d+$/.test(String(p.id)) ? Number(p.id) : p.id));
+	const regular = () =>
+		fallback === "next"
+			? redux.actions["playQueue/ADD_NEXT"]({ context: { type: "UNKNOWN" }, mediaItemIds: ids, offset })
+			: redux.actions["playQueue/ADD_LAST"]({ context: { type: "UNKNOWN" }, mediaItemIds: ids });
+
+	const q = PlayState.playQueue;
+	const anchor = q.elements[afterIndex];
+	const addToCloudQueue = (redux.actions as unknown as Record<string, ((payload: unknown) => unknown) | undefined>)["cloudQueue/ADD_ITEMS_TO_CLOUD_QUEUE"];
+	if (q.type !== "cloudV2" || addToCloudQueue === undefined || anchor?.uid === undefined) return regular();
+
+	try {
+		addToCloudQueue({ context: { type: "UNKNOWN" }, itemId: anchor.uid, mediaItemIds: ids, mode: "append", priority: "priority_none" });
+	} catch (err) {
+		trace.warn("cloud queue insert failed, using play next", err);
+		return regular();
+	}
+	setTimeout(() => {
+		const queued = new Set(PlayState.playQueue.elements.map((e: redux.PlayQueueElement) => String(e.mediaItemId)));
+		if (!ids.some((id) => queued.has(String(id)))) {
+			trace.warn("DJ picks didn't reach the cloud queue, using play next");
+			regular();
+		}
+	}, 6000);
+};
+
 let topping: Promise<void> | undefined;
 const topUp = () => (topping ??= doTopUp().finally(() => (topping = undefined)));
 
@@ -140,7 +175,7 @@ const doTopUp = async () => {
 		if (seed === undefined) return;
 		const picks = await findPicks(seed, missing);
 		if (picks.length === 0 || !session) return;
-		redux.actions["playQueue/ADD_NEXT"]({ context: { type: "UNKNOWN" }, mediaItemIds: picks.map((p) => p.id), offset: ahead });
+		addToQueue(picks, q.currentIndex + ahead, "next", ahead);
 		return;
 	}
 
@@ -152,7 +187,7 @@ const doTopUp = async () => {
 	if (seed === undefined) return;
 	const picks = await findPicks(seed, missing);
 	if (picks.length === 0) return;
-	redux.actions["playQueue/ADD_LAST"]({ context: { type: "UNKNOWN" }, mediaItemIds: picks.map((p) => p.id) });
+	addToQueue(picks, q.elements.length - 1, "last");
 };
 
 // ---------------------------------------------------------------------------

@@ -129,9 +129,10 @@ const introFor = async (item: MediaItem, previous?: TrackInfo): Promise<string> 
  * Adds the DJ's picks to the queue right after the element at `afterIndex`.
  *
  * Tidal's "play next" / "add to queue" put tracks in "Tu cola de reproducción" (priority_keep), which are consumed
- * after playing and never show up in the queue's history. On the cloud queue we insert them as part of what's playing
- * (priority_none), like an album or mix track, so they stay in the history. If that doesn't land in the queue within a
- * few seconds (Tidal changed something), fall back to the regular "play next" / "add to queue".
+ * after playing and never show up in the queue's history. We insert them as part of what's playing (priority_none),
+ * like an album or mix track, which Tidal turns into history after they play: on the cloud queue with Tidal's own
+ * insert, on the local queue by rebuilding the element list. If they don't land in the queue within a few seconds
+ * (Tidal changed something), fall back to the regular "play next" / "add to queue".
  */
 const addToQueue = (picks: MediaItem[], afterIndex: number, fallback: "next" | "last", offset = 0) => {
 	const ids = picks.map((p) => (/^\d+$/.test(String(p.id)) ? Number(p.id) : p.id));
@@ -142,18 +143,36 @@ const addToQueue = (picks: MediaItem[], afterIndex: number, fallback: "next" | "
 
 	const q = PlayState.playQueue;
 	const anchor = q.elements[afterIndex];
-	const addToCloudQueue = (redux.actions as unknown as Record<string, ((payload: unknown) => unknown) | undefined>)["cloudQueue/ADD_ITEMS_TO_CLOUD_QUEUE"];
+	const actions = redux.actions as unknown as Record<string, ((payload: unknown) => unknown) | undefined>;
+	const addToCloudQueue = actions["cloudQueue/ADD_ITEMS_TO_CLOUD_QUEUE"];
+	const resetQueue = actions["playQueue/RESET"];
 	dbg({ ev: "add", fallback, qType: q.type, cloudAction: addToCloudQueue !== undefined, anchorUid: anchor?.uid, afterIndex, len: q.elements.length, ids });
-	if (q.type !== "cloudV2" || addToCloudQueue === undefined || anchor?.uid === undefined) {
-		dbg({ ev: "regular", reason: "no cloud queue / action / anchor" });
-		return regular();
-	}
 
 	try {
-		addToCloudQueue({ context: { type: "UNKNOWN" }, itemId: anchor.uid, mediaItemIds: ids, mode: "append", priority: "priority_none" });
+		if (q.type === "cloudV2" && addToCloudQueue !== undefined && anchor?.uid !== undefined) {
+			// Cloud queue: Tidal's own insert, as part of what's playing
+			addToCloudQueue({ context: { type: "UNKNOWN" }, itemId: anchor.uid, mediaItemIds: ids, mode: "append", priority: "priority_none" });
+			dbg({ ev: "method", method: "cloud" });
+		} else if (resetQueue !== undefined && anchor !== undefined) {
+			// Local queue: rebuild the element list with the picks inserted as part of what's playing. Everything else
+			// (the current track, its index, the other elements) stays exactly the same, so playback isn't touched.
+			const stamp = Date.now().toString(16);
+			const inserted = ids.map((mediaItemId, k) => ({
+				context: { type: "UNKNOWN" },
+				mediaItemId,
+				priority: "priority_none",
+				uid: `pq__kaidj${stamp}__${q.uniqueIdCounter + 1 + k}`,
+			}));
+			const elements = [...q.elements.slice(0, afterIndex + 1), ...inserted, ...q.elements.slice(afterIndex + 1)];
+			resetQueue({ elements, currentIndex: q.currentIndex, uniqueIdCounter: q.uniqueIdCounter + ids.length });
+			dbg({ ev: "method", method: "local-reset" });
+		} else {
+			dbg({ ev: "regular", reason: "no cloud action / reset / anchor" });
+			return regular();
+		}
 	} catch (err) {
-		dbg({ ev: "regular", reason: `cloud action threw: ${String(err)}` });
-		trace.warn("cloud queue insert failed, using play next", err);
+		dbg({ ev: "regular", reason: `insert threw: ${String(err)}` });
+		trace.warn("queue insert failed, using play next", err);
 		return regular();
 	}
 	setTimeout(() => {
@@ -161,8 +180,8 @@ const addToQueue = (picks: MediaItem[], afterIndex: number, fallback: "next" | "
 		const landed = elements.filter((e: redux.PlayQueueElement) => ids.some((id) => String(id) === String(e.mediaItemId)));
 		dbg({ ev: "check", landed: landed.map((e: redux.PlayQueueElement) => ({ id: e.mediaItemId, priority: e.priority, ctx: e.context?.type })) });
 		if (landed.length === 0) {
-			dbg({ ev: "regular", reason: "picks didn't reach the cloud queue" });
-			trace.warn("DJ picks didn't reach the cloud queue, using play next");
+			dbg({ ev: "regular", reason: "picks didn't reach the queue" });
+			trace.warn("DJ picks didn't reach the queue, using play next");
 			regular();
 		}
 	}, 6000);

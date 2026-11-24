@@ -66,7 +66,8 @@ const findPicks = async (seed: MediaItem, count: number): Promise<MediaItem[]> =
 	const { ids, errors } = await withTimeout(recommendations(seed.id), 15_000, "recommendations");
 	if (errors.length > 0) trace.warn("Algunas fuentes de recomendaciones fallaron", errors);
 	if (ids.length === 0) {
-		trace.msg.warn(`El DJ no encontró canciones parecidas a "${seed.tidalItem.title}"`);
+		// Quietly: the caller tries another seed
+		dbg({ ev: "no-recs", seed: seed.id, title: seed.tidalItem.title, errors });
 		return [];
 	}
 	const queued = PlayState.playQueue.elements.map((e: redux.PlayQueueElement) => String(e.mediaItemId));
@@ -83,7 +84,8 @@ const findPicks = async (seed: MediaItem, count: number): Promise<MediaItem[]> =
 			dbg({ ev: "load-fail", id, err: String(err) });
 			return undefined;
 		});
-		if (item === undefined || item.tidalItem.allowStreaming === false) continue;
+		// Skip what Tidal can't play right now (otherwise the player sits at 0:00)
+		if (item === undefined || item.tidalItem.allowStreaming === false || item.tidalItem.streamReady === false) continue;
 		// Artists you keep skipping go to the back of the line
 		if (isAvoidedArtist(item.tidalItem.artists?.[0]?.id)) avoided.push(item);
 		else picks.push(item);
@@ -97,6 +99,23 @@ const findPicks = async (seed: MediaItem, count: number): Promise<MediaItem[]> =
 		prefetchComment(p, seedInfo); // so the AI intro is ready when the track starts
 	}
 	return picks;
+};
+
+/**
+ * Tries seeds in order until one gives picks: the preferred ones, then the last tracks played this session.
+ * Some tracks get no recommendations from Tidal at all; without this the DJ would keep retrying the same one.
+ */
+const findPicksFromSeeds = async (preferred: (redux.ItemId | undefined)[], count: number): Promise<MediaItem[]> => {
+	const recent = [...history].reverse().slice(0, 6);
+	const seeds = [...new Set([...preferred.filter((id) => id !== undefined).map(String), ...recent])];
+	for (const seedId of seeds) {
+		const seed = await withTimeout(MediaItem.fromId(seedId), 8_000, `seed ${seedId}`).catch(() => undefined);
+		if (seed === undefined) continue;
+		const picks = await findPicks(seed, count);
+		if (picks.length > 0) return picks;
+	}
+	dbg({ ev: "no-picks-any-seed", seeds });
+	return [];
 };
 
 // ---------------------------------------------------------------------------
@@ -250,9 +269,7 @@ const doTopUp = async () => {
 		const ahead = djPicksAhead();
 		const missing = settings.ahead - ahead;
 		if (missing <= 0) return;
-		const seed = await MediaItem.fromId(q.elements[q.currentIndex + ahead]?.mediaItemId);
-		if (seed === undefined) return;
-		const picks = await findPicks(seed, missing);
+		const picks = await findPicksFromSeeds([q.elements[q.currentIndex + ahead]?.mediaItemId, q.elements[q.currentIndex]?.mediaItemId], missing);
 		if (picks.length === 0 || !session) return;
 		addToQueue(picks, q.currentIndex + ahead, "next", ahead);
 		return;
@@ -262,9 +279,7 @@ const doTopUp = async () => {
 	if (!settings.enabled) return;
 	const missing = settings.ahead - upcoming();
 	if (missing <= 0) return;
-	const seed = await MediaItem.fromId((q.elements.at(-1) ?? q.elements[q.currentIndex])?.mediaItemId);
-	if (seed === undefined) return;
-	const picks = await findPicks(seed, missing);
+	const picks = await findPicksFromSeeds([q.elements.at(-1)?.mediaItemId, q.elements[q.currentIndex]?.mediaItemId], missing);
 	if (picks.length === 0) return;
 	addToQueue(picks, q.elements.length - 1, "last");
 };
@@ -407,6 +422,9 @@ const curiousFact = async (item: MediaItem): Promise<string> => {
 
 /** Seconds the player has been sitting at the very end of a track without moving on */
 let stuckAtEnd = 0;
+/** Start-of-track watchdog state, reset on every track change */
+let startNudged = false;
+let startSkipped = false;
 let ticksSinceTopUp = 0;
 
 const tick = setInterval(() => {
@@ -424,6 +442,21 @@ const tick = setInterval(() => {
 			PlayState.play();
 		}
 	} else stuckAtEnd = 0;
+
+	// Watchdog: a track that stays at 0:00 after it started (Tidal couldn't load it): try playing, then skip
+	const sinceStart = Date.now() - lastTransition.at;
+	if (session && pos < 1 && sinceStart > 10_000 && sinceStart < 40_000 && q.currentIndex < q.elements.length - 1) {
+		if (!startNudged) {
+			startNudged = true;
+			dbg({ ev: "watchdog-start-play", id: now.id });
+			PlayState.play();
+		} else if (sinceStart > 20_000 && !startSkipped) {
+			startSkipped = true;
+			dbg({ ev: "watchdog-start-skip", id: now.id });
+			PlayState.next();
+			PlayState.play();
+		}
+	}
 
 	// Every 15 s during a session, make sure the DJ's picks are lined up (in case a top-up failed or timed out)
 	if (session && ++ticksSinceTopUp >= 15) {
@@ -452,6 +485,8 @@ MediaItem.onMediaTransition(unloads, async (item) => {
 		return;
 	}
 	lastTransition = { id, at: nowMs };
+	startNudged = false;
+	startSkipped = false;
 	history.add(id);
 
 	// Did you skip the DJ's previous pick? (left it in the first 30 s / first half, well before the end)

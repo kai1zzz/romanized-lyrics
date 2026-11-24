@@ -44,6 +44,10 @@ check("japonés", (s) => romanizeJapanese(tokenizer, s, kanjiLookup), [
 	["あと何センチ近付けば良いんだろう", "ato nan senchi chikazukeba yoi ndarou"],
 	["田中君", "tanaka kun"],
 	["着物を着た", "kimono wo kita"],
+	["分かり合う丸1つもなくても", "wakariau maru hitotsu mo nakute mo"],
+	["1か8か0に変えるまで", "ichi ka hachi ka zero ni kaeru made"],
+	["2人で300回", "futari de sanbyaku kai"],
+	["I love you 24/7", "I love you 24/7"],
 ]);
 
 check("coreano", romanizeKorean, [

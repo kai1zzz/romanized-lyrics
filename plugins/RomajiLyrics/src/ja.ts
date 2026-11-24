@@ -2,6 +2,7 @@ import type { IpadicFeatures, Tokenizer } from "kuromoji";
 import { toRomaji } from "wanakana";
 
 import { JAPANESE } from "./lang";
+import { numbersToKana } from "./numbers";
 
 // Particles that are pronounced differently from how they are written
 const PARTICLE_READINGS: Record<string, string> = { は: "wa", へ: "e", を: "wo" };
@@ -112,7 +113,7 @@ const kanaToRomaji = (kana: string): string =>
 export const romanizeJapanese = (tokenizer: Tokenizer<IpadicFeatures>, line: string, lookup?: KanjiLookup): string => {
 	if (!JAPANESE.test(line)) return line;
 
-	let text = line.normalize("NFKC");
+	let text = numbersToKana(line.normalize("NFKC"));
 	for (const [kanji, kana] of READING_OVERRIDES) text = text.replaceAll(kanji, kana);
 	const tokens = tokenizer.tokenize(text);
 

@@ -5,6 +5,7 @@ import path from "path";
 import kuromoji, { type IpadicFeatures, type Tokenizer } from "kuromoji";
 
 import { romanizeJapanese } from "../src/ja";
+import { kanjiLookup } from "../src/kanji";
 import { romanizeKorean } from "../src/ko";
 import { romanizeChinese } from "../src/zh";
 
@@ -26,7 +27,7 @@ const check = (name: string, fn: (s: string) => string, cases: [string, string][
 	}
 };
 
-check("japonés", (s) => romanizeJapanese(tokenizer, s), [
+check("japonés", (s) => romanizeJapanese(tokenizer, s, kanjiLookup), [
 	["君の名は", "kimi no na wa"],
 	["二人だけの空が広がる夜に", "futari dake no sora ga hirogaru yoru ni"],
 	["僕は君を待っている", "boku wa kimi wo matteiru"],
@@ -36,6 +37,8 @@ check("japonés", (s) => romanizeJapanese(tokenizer, s), [
 	["「さよなら」なんて言わないで、ずっと一緒に", "“sayonara” nante iwanaide, zutto issho ni"],
 	["I love you 愛してる", "I love you aishiteru"],
 	["ゲームセンターで遊ぼう", "geemusentaa de asobou"],
+	["慈悲深いが故灼ったかもう止まれない", "jihi fukai ga ko yatta ka mou tomarenai"],
+	["彷徨う夜に", "samayou yoru ni"],
 ]);
 
 check("coreano", romanizeKorean, [

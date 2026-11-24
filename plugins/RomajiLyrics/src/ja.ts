@@ -39,6 +39,12 @@ const READING_OVERRIDES: [string, string][] = [
 	["今日", "きょう"],
 	["明日", "あした"],
 	["昨日", "きのう"],
+	// In katakana so the tokenizer keeps it as one word (in hiragana it splits it into さま + よう)
+	["彷徨う", "サマヨウ"],
+	["彷徨い", "サマヨイ"],
+	["彷徨っ", "サマヨッ"],
+	["彷徨わ", "サマヨワ"],
+	["彷徨え", "サマヨエ"],
 	["愛して", "あいして"],
 	["愛し", "あいし"],
 	["愛す", "あいす"],
@@ -64,10 +70,23 @@ const attachesToPrevious = (token: IpadicFeatures, prev: IpadicFeatures | undefi
 	return false;
 };
 
-const readingOf = (token: IpadicFeatures): string => {
+/**
+ * Reading of a single kanji when the dictionary has none for it in context.
+ * `verbStem`: the kanji is followed by a verb ending (灼った), so a kun'yomi stem fits better than the on'yomi.
+ */
+export type KanjiLookup = (kanji: string, verbStem: boolean) => string | undefined;
+
+const KANJI = /[㐀-䶿一-鿿豈-﫿]/;
+
+const readingOf = (token: IpadicFeatures, next: IpadicFeatures | undefined, lookup?: KanjiLookup): string => {
 	const surface = token.surface_form;
 	if (token.pos === "助詞" && PARTICLE_READINGS[surface]) return PARTICLE_READINGS[surface];
 	if (token.reading && token.reading !== "*") return token.reading;
+	// Unknown word with kanji (rare/literary kanji like 灼): read it character by character instead of leaving kanji
+	if (lookup && KANJI.test(surface)) {
+		const verbStem = next !== undefined && (next.pos === "動詞" || next.pos === "助動詞" || /^[っッ]/.test(next.surface_form));
+		return [...surface].map((c) => (KANJI.test(c) ? (lookup(c, verbStem) ?? c) : c)).join("");
+	}
 	return surface;
 };
 
@@ -78,7 +97,7 @@ const kanaToRomaji = (kana: string): string =>
 		.replace(/-/g, "");
 
 /** Converts a single line of Japanese text to romaji. Non Japanese text is left untouched. */
-export const romanizeJapanese = (tokenizer: Tokenizer<IpadicFeatures>, line: string): string => {
+export const romanizeJapanese = (tokenizer: Tokenizer<IpadicFeatures>, line: string, lookup?: KanjiLookup): string => {
 	if (!JAPANESE.test(line)) return line;
 
 	let text = line.normalize("NFKC");
@@ -96,7 +115,7 @@ export const romanizeJapanese = (tokenizer: Tokenizer<IpadicFeatures>, line: str
 		current = "";
 	};
 
-	for (const token of tokens) {
+	for (const [i, token] of tokens.entries()) {
 		const surface = token.surface_form;
 
 		// Whitespace: word boundary
@@ -118,7 +137,7 @@ export const romanizeJapanese = (tokenizer: Tokenizer<IpadicFeatures>, line: str
 		}
 
 		// Kana readings are converted to romaji once the whole word is grouped (so っ+て -> tte works)
-		const reading = readingOf(token);
+		const reading = readingOf(token, tokens[i + 1], lookup);
 
 		if (!attachesToPrevious(token, prev, prevReading)) flush();
 		current += reading;

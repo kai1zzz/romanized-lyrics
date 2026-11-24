@@ -6,6 +6,7 @@ import path from "path";
 import kuromoji, { type IpadicFeatures, type Tokenizer } from "kuromoji";
 
 import { romanizeJapanese } from "./ja";
+import { kanjiLookup } from "./kanji";
 import { romanizeKorean } from "./ko";
 import { type Lang, lineLang } from "./lang";
 import { romanizeChinese } from "./zh";
@@ -82,7 +83,7 @@ export const romanize = async (lines: string[], songLang: Lang): Promise<string[
 		try {
 			switch (langs[i]) {
 				case "ja":
-					return romanizeJapanese(tokenizer!, line);
+					return romanizeJapanese(tokenizer!, line, kanjiLookup);
 				case "ko":
 					return romanizeKorean(line);
 				case "zh":

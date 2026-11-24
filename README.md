@@ -3,6 +3,7 @@
 Plugin de [TidaLuna](https://github.com/Inrixia/TidaLuna) que romaniza las letras de Tidal:
 
 - **Japonés → romaji** con [kuromoji](https://github.com/takuyaa/kuromoji.js) (lee los kanji) + [wanakana](https://github.com/WaniKani/WanaKana). La primera vez se descarga el diccionario (~17 MB) desde jsDelivr y se guarda en `%APPDATA%\TIDAL\luna-romaji-lyrics`.
+  Los kanji raros que ese diccionario no conoce (灼, 鬱…) se leen carácter a carácter con [KANJIDIC](https://www.edrdg.org/wiki/index.php/KANJIDIC_Project) (vía [kanji.js](https://github.com/eidoriantan/kanji.js); datos © EDRDG, licencia CC BY-SA 4.0).
 - **Coreano → romanización revisada**, con las reglas de pronunciación habituales (enlace, nasalización, ㄹ, aspiración).
 - **Chino → pinyin** con tonos, con [pinyin-pro](https://github.com/zh-lx/pinyin-pro) (resuelve caracteres con varias lecturas por contexto).
 

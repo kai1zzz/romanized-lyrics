@@ -3,6 +3,7 @@ import { MediaItem, PlayState, redux } from "@luna/lib";
 
 import { aiFact, aiIntro } from "./ai.native";
 import { artistBio, favoriteTracks, recommendations } from "./api";
+import { debugLog } from "./debug.native";
 import { wikipediaFacts } from "./facts.native";
 import { mountButton } from "./button";
 import { DJ_INTRO, greeting, timeContext, type TrackInfo, trackIntro } from "./lines";
@@ -142,21 +143,49 @@ const addToQueue = (picks: MediaItem[], afterIndex: number, fallback: "next" | "
 	const q = PlayState.playQueue;
 	const anchor = q.elements[afterIndex];
 	const addToCloudQueue = (redux.actions as unknown as Record<string, ((payload: unknown) => unknown) | undefined>)["cloudQueue/ADD_ITEMS_TO_CLOUD_QUEUE"];
-	if (q.type !== "cloudV2" || addToCloudQueue === undefined || anchor?.uid === undefined) return regular();
+	dbg({ ev: "add", fallback, qType: q.type, cloudAction: addToCloudQueue !== undefined, anchorUid: anchor?.uid, afterIndex, len: q.elements.length, ids });
+	if (q.type !== "cloudV2" || addToCloudQueue === undefined || anchor?.uid === undefined) {
+		dbg({ ev: "regular", reason: "no cloud queue / action / anchor" });
+		return regular();
+	}
 
 	try {
 		addToCloudQueue({ context: { type: "UNKNOWN" }, itemId: anchor.uid, mediaItemIds: ids, mode: "append", priority: "priority_none" });
 	} catch (err) {
+		dbg({ ev: "regular", reason: `cloud action threw: ${String(err)}` });
 		trace.warn("cloud queue insert failed, using play next", err);
 		return regular();
 	}
 	setTimeout(() => {
-		const queued = new Set(PlayState.playQueue.elements.map((e: redux.PlayQueueElement) => String(e.mediaItemId)));
-		if (!ids.some((id) => queued.has(String(id)))) {
+		const elements = PlayState.playQueue.elements;
+		const landed = elements.filter((e: redux.PlayQueueElement) => ids.some((id) => String(id) === String(e.mediaItemId)));
+		dbg({ ev: "check", landed: landed.map((e: redux.PlayQueueElement) => ({ id: e.mediaItemId, priority: e.priority, ctx: e.context?.type })) });
+		if (landed.length === 0) {
+			dbg({ ev: "regular", reason: "picks didn't reach the cloud queue" });
 			trace.warn("DJ picks didn't reach the cloud queue, using play next");
 			regular();
 		}
 	}, 6000);
+};
+
+/** Local diagnostic log (queue structure only), see debug.native.ts */
+const dbg = (entry: Record<string, unknown>) => {
+	debugLog(entry).catch(() => {});
+};
+/** Compact view of the queue around the current track: priority + whether it's a DJ pick */
+const queueSnapshot = () => {
+	const q = PlayState.playQueue;
+	return {
+		type: q.type,
+		currentIndex: q.currentIndex,
+		len: q.elements.length,
+		around: q.elements.slice(Math.max(0, q.currentIndex - 4), q.currentIndex + 6).map((e: redux.PlayQueueElement, i: number) => ({
+			rel: i + Math.max(0, q.currentIndex - 4) - q.currentIndex,
+			id: e.mediaItemId,
+			p: e.priority,
+			dj: djPicks.has(String(e.mediaItemId)),
+		})),
+	};
 };
 
 let topping: Promise<void> | undefined;
@@ -363,6 +392,7 @@ MediaItem.onMediaTransition(unloads, async (item) => {
 	if (session && !djChangedTrack) stopSpeaking();
 	now = { id, artists: (item.tidalItem.artists ?? []).map((a) => a.id), duration: item.tidalItem.duration ?? 0, pos: 0 };
 	planMidComment(item);
+	dbg({ ev: "transition", id, djPick: djPicks.has(id), session, queue: queueSnapshot() });
 
 	const seed = djPicks.get(id);
 	// The DJ only talks while DJ Kai is on (the button), never on its own when Tidal starts
@@ -402,6 +432,13 @@ mountButton(unloads, {
 	onClick: () => {
 		toggleSession().catch(trace.msg.err.withContext("DJ Kai"));
 	},
+});
+
+dbg({
+	ev: "load",
+	cloudActions: Object.keys(redux.actions).filter((k) => k.startsWith("cloudQueue/")),
+	queueStateKeys: Object.keys(redux.store.getState()).filter((k) => /queue/i.test(k)),
+	queue: queueSnapshot(),
 });
 
 // On load: remember the current track and fill the queue if needed

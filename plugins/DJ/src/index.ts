@@ -145,7 +145,9 @@ const addToQueue = (picks: MediaItem[], afterIndex: number, fallback: "next" | "
 	const anchor = q.elements[afterIndex];
 	const actions = redux.actions as unknown as Record<string, ((payload: unknown) => unknown) | undefined>;
 	const addToCloudQueue = actions["cloudQueue/ADD_ITEMS_TO_CLOUD_QUEUE"];
-	const resetQueue = actions["playQueue/RESET"];
+	const appendElements = actions["playQueue/APPEND_ELEMENTS"];
+	const moveTrack = actions["playQueue/MOVE_TRACK"];
+	const wasPlaying = PlayState.playing;
 	dbg({ ev: "add", fallback, qType: q.type, cloudAction: addToCloudQueue !== undefined, anchorUid: anchor?.uid, afterIndex, len: q.elements.length, ids });
 
 	try {
@@ -153,9 +155,9 @@ const addToQueue = (picks: MediaItem[], afterIndex: number, fallback: "next" | "
 			// Cloud queue: Tidal's own insert, as part of what's playing
 			addToCloudQueue({ context: { type: "UNKNOWN" }, itemId: anchor.uid, mediaItemIds: ids, mode: "append", priority: "priority_none" });
 			dbg({ ev: "method", method: "cloud" });
-		} else if (resetQueue !== undefined && anchor !== undefined) {
-			// Local queue: rebuild the element list with the picks inserted as part of what's playing. Everything else
-			// (the current track, its index, the other elements) stays exactly the same, so playback isn't touched.
+		} else if (appendElements !== undefined && moveTrack !== undefined && anchor !== undefined) {
+			// Local queue: add them at the end (like Tidal's own "A continuación" mix) and move them into place
+			// (like dragging in the queue panel). Neither reloads the current track, unlike rebuilding the queue.
 			const stamp = Date.now().toString(16);
 			const inserted = ids.map((mediaItemId, k) => ({
 				context: { type: "UNKNOWN" },
@@ -163,17 +165,30 @@ const addToQueue = (picks: MediaItem[], afterIndex: number, fallback: "next" | "
 				priority: "priority_none",
 				uid: `pq__kaidj${stamp}__${q.uniqueIdCounter + 1 + k}`,
 			}));
-			const elements = [...q.elements.slice(0, afterIndex + 1), ...inserted, ...q.elements.slice(afterIndex + 1)];
-			resetQueue({ elements, currentIndex: q.currentIndex, uniqueIdCounter: q.uniqueIdCounter + ids.length });
-			dbg({ ev: "method", method: "local-reset" });
+			appendElements({ elements: inserted });
+			inserted.forEach((el, k) => {
+				const from = PlayState.playQueue.elements.findIndex((e: redux.PlayQueueElement) => e.uid === el.uid);
+				const to = afterIndex + 1 + k;
+				if (from > -1 && from !== to) moveTrack({ fromIndex: from, toIndex: to });
+			});
+			dbg({ ev: "method", method: "local-append-move" });
 		} else {
-			dbg({ ev: "regular", reason: "no cloud action / reset / anchor" });
+			dbg({ ev: "regular", reason: "no cloud action / append+move / anchor" });
 			return regular();
 		}
 	} catch (err) {
 		dbg({ ev: "regular", reason: `insert threw: ${String(err)}` });
 		trace.warn("queue insert failed, using play next", err);
 		return regular();
+	}
+	// Safety net: if changing the queue left the music paused, carry on playing
+	if (wasPlaying) {
+		setTimeout(() => {
+			if (!PlayState.playing) {
+				dbg({ ev: "resume", reason: "paused after queue change" });
+				PlayState.play();
+			}
+		}, 1200);
 	}
 	setTimeout(() => {
 		const elements = PlayState.playQueue.elements;
@@ -389,8 +404,17 @@ const tick = setInterval(() => {
 }, 1000);
 unloads.add(() => clearInterval(tick));
 
+/** Last track change, to ignore Tidal firing it again for the same track (e.g. when it reloads it) */
+let lastTransition = { id: "", at: 0 };
+
 MediaItem.onMediaTransition(unloads, async (item) => {
 	const id = String(item.id);
+	const nowMs = Date.now();
+	if (lastTransition.id === id && nowMs - lastTransition.at < 5000) {
+		dbg({ ev: "duplicate-transition", id });
+		return;
+	}
+	lastTransition = { id, at: nowMs };
 	history.add(id);
 
 	// Did you skip the DJ's previous pick? (left it in the first 30 s / first half, well before the end)

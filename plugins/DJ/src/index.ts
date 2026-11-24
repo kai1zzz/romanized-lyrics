@@ -193,7 +193,6 @@ const addToQueue = (picks: MediaItem[], afterIndex: number, fallback: "next" | "
 	const addToCloudQueue = actions["cloudQueue/ADD_ITEMS_TO_CLOUD_QUEUE"];
 	const appendElements = actions["playQueue/APPEND_ELEMENTS"];
 	const moveTrack = actions["playQueue/MOVE_TRACK"];
-	const wasPlaying = PlayState.playing;
 	dbg({ ev: "add", fallback, qType: q.type, cloudAction: addToCloudQueue !== undefined, anchorUid: anchor?.uid, afterIndex, len: q.elements.length, ids });
 
 	try {
@@ -226,15 +225,6 @@ const addToQueue = (picks: MediaItem[], afterIndex: number, fallback: "next" | "
 		dbg({ ev: "regular", reason: `insert threw: ${String(err)}` });
 		trace.warn("queue insert failed, using play next", err);
 		return regular();
-	}
-	// Safety net: if changing the queue left the music paused, carry on playing
-	if (wasPlaying) {
-		setTimeout(() => {
-			if (!PlayState.playing) {
-				dbg({ ev: "resume", reason: "paused after queue change" });
-				PlayState.play();
-			}
-		}, 1200);
 	}
 	setTimeout(() => {
 		const elements = PlayState.playQueue.elements;
@@ -437,11 +427,10 @@ const curiousFact = async (item: MediaItem): Promise<string> => {
 	return fact;
 };
 
-/** Seconds the player has been sitting at the very end of a track without moving on */
-let stuckAtEnd = 0;
-/** Start-of-track watchdog state, reset on every track change */
-let startNudged = false;
-let startSkipped = false;
+/** Seconds the player has been "playing" without the position moving */
+let stalledSeconds = 0;
+let lastTickPos = -1;
+
 let ticksSinceTopUp = 0;
 
 const tick = setInterval(() => {
@@ -449,31 +438,20 @@ const tick = setInterval(() => {
 	const pos = PlayState.currentTime;
 	if (pos > 0) now.pos = pos;
 
-	// Watchdog: during a DJ Kai session, if a track reached its end and the player didn't move on, skip forward
+	// Watchdog: during a DJ Kai session, if Tidal says it's playing but the position doesn't move (a track that won't
+	// load, or one stuck at its end), skip to the next track. Never acts while you paused.
 	const q = PlayState.playQueue;
-	if (session && PlayState.playing && now.duration > 0 && pos >= now.duration - 1 && q.currentIndex < q.elements.length - 1) {
-		if (++stuckAtEnd >= 5) {
-			stuckAtEnd = 0;
-			dbg({ ev: "watchdog-next", id: now.id, pos, duration: now.duration });
+	if (session && PlayState.playing) {
+		stalledSeconds = Math.abs(pos - lastTickPos) < 0.05 ? stalledSeconds + 1 : 0;
+		// (No "play" nudge first: calling play while a track is still loading is what can leave it stuck)
+		if (stalledSeconds >= 12 && q.currentIndex < q.elements.length - 1) {
+			stalledSeconds = 0;
+			dbg({ ev: "watchdog-skip", id: now.id, pos });
 			PlayState.next();
 			PlayState.play();
 		}
-	} else stuckAtEnd = 0;
-
-	// Watchdog: a track that stays at 0:00 after it started (Tidal couldn't load it): try playing, then skip
-	const sinceStart = Date.now() - lastTransition.at;
-	if (session && pos < 1 && sinceStart > 10_000 && sinceStart < 40_000 && q.currentIndex < q.elements.length - 1) {
-		if (!startNudged) {
-			startNudged = true;
-			dbg({ ev: "watchdog-start-play", id: now.id });
-			PlayState.play();
-		} else if (sinceStart > 20_000 && !startSkipped) {
-			startSkipped = true;
-			dbg({ ev: "watchdog-start-skip", id: now.id });
-			PlayState.next();
-			PlayState.play();
-		}
-	}
+	} else stalledSeconds = 0;
+	lastTickPos = pos;
 
 	// Every 15 s during a session, make sure the DJ's picks are lined up (in case a top-up failed or timed out)
 	if (session && ++ticksSinceTopUp >= 15) {
@@ -502,8 +480,7 @@ MediaItem.onMediaTransition(unloads, async (item) => {
 		return;
 	}
 	lastTransition = { id, at: nowMs };
-	startNudged = false;
-	startSkipped = false;
+	stalledSeconds = 0;
 	history.add(id);
 
 	// Did you skip the DJ's previous pick? (left it in the first 30 s / first half, well before the end)

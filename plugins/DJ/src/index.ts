@@ -107,15 +107,32 @@ const findPicks = async (seed: MediaItem, count: number): Promise<MediaItem[]> =
  */
 const findPicksFromSeeds = async (preferred: (redux.ItemId | undefined)[], count: number): Promise<MediaItem[]> => {
 	const recent = [...history].reverse().slice(0, 6);
-	const seeds = [...new Set([...preferred.filter((id) => id !== undefined).map(String), ...recent])];
-	for (const seedId of seeds) {
-		const seed = await withTimeout(MediaItem.fromId(seedId), 8_000, `seed ${seedId}`).catch(() => undefined);
-		if (seed === undefined) continue;
-		const picks = await findPicks(seed, count);
-		if (picks.length > 0) return picks;
-	}
-	dbg({ ev: "no-picks-any-seed", seeds });
-	return [];
+	// Also the queue's own history (survives plugin reloads)
+	const q = PlayState.playQueue;
+	const queueHistory = q.elements
+		.slice(0, q.currentIndex)
+		.reverse()
+		.slice(0, 6)
+		.map((e: redux.PlayQueueElement) => String(e.mediaItemId));
+	const tried = new Set<string>();
+	const trySeeds = async (ids: string[]) => {
+		for (const seedId of ids) {
+			if (tried.has(seedId)) continue;
+			tried.add(seedId);
+			const seed = await withTimeout(MediaItem.fromId(seedId), 8_000, `seed ${seedId}`).catch(() => undefined);
+			if (seed === undefined) continue;
+			const picks = await findPicks(seed, count);
+			if (picks.length > 0) return picks;
+		}
+		return [];
+	};
+	const picks = await trySeeds([...preferred.filter((id) => id !== undefined).map(String), ...recent, ...queueHistory]);
+	if (picks.length > 0) return picks;
+	// Last resort: a few of your recent favourites
+	const favourites = await withTimeout(favoriteTracks(), 10_000, "favourites").catch(() => [] as string[]);
+	const fromFavourites = await trySeeds(favourites.slice(0, 10).sort(() => Math.random() - 0.5).slice(0, 3));
+	if (fromFavourites.length === 0) dbg({ ev: "no-picks-any-seed", seeds: [...tried] });
+	return fromFavourites;
 };
 
 // ---------------------------------------------------------------------------

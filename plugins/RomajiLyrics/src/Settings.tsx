@@ -10,11 +10,13 @@ export type RomajiMode = "below" | "replace";
 export const settings = await ReactiveStore.getPluginStorage("RomajiLyrics", {
 	mode: "below" as RomajiMode,
 	smoothLyrics: true,
+	karaoke: true,
 });
 
 export const Settings = () => {
 	const [mode, setMode] = React.useState<RomajiMode>(settings.mode);
 	const [smooth, setSmooth] = React.useState(settings.smoothLyrics);
+	const [karaoke, setKaraoke] = React.useState(settings.karaoke);
 	return (
 		<LunaSettings>
 			<LunaSelectSetting
@@ -30,6 +32,14 @@ export const Settings = () => {
 				<LunaSelectItem value="below">Original + romanización</LunaSelectItem>
 				<LunaSelectItem value="replace">Solo romanización</LunaSelectItem>
 			</LunaSelectSetting>
+			{mode === "below" && (
+				<LunaSwitchSetting
+					title="Efecto karaoke en la romanización"
+					desc="La romanización de la línea que se está cantando se va iluminando de izquierda a derecha; el original se queda iluminado. Tidal sincroniza por línea, no por palabra, así que el relleno sigue el tiempo de cada línea."
+					checked={karaoke}
+					onChange={(_: unknown, checked?: boolean) => setKaraoke((settings.karaoke = checked ?? false))}
+				/>
+			)}
 			<LunaSwitchSetting
 				title="Animaciones suaves en las letras"
 				desc="Tidal quita el desplazamiento suave y las transiciones de las letras si Windows tiene desactivados los «Efectos de animación». Esto las activa solo dentro de Tidal. Si no notas el cambio, cierra y vuelve a abrir la vista de letras."

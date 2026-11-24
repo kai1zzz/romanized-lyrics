@@ -1,5 +1,5 @@
 import { type LunaUnload, Tracer } from "@luna/core";
-import { MediaItem, type redux, StyleTag } from "@luna/lib";
+import { MediaItem, PlayState, type redux, StyleTag } from "@luna/lib";
 
 import { detectLang, type Lang, ROMANIZABLE } from "./lang";
 import { setForceMotion } from "./motion.native";
@@ -70,6 +70,18 @@ const style = new StyleTag(
 	pointer-events: none;
 	user-select: none;
 }
+/* Karaoke: the romanized line of the line being sung fills from left to right (lit / dim come from the original line) */
+.${ROMAJI_CLASS}.kai-karaoke {
+	opacity: 1 !important;
+	color: transparent !important;
+	background-image: linear-gradient(
+		to right,
+		var(--kai-lit) calc(var(--kai-fill) - 3%),
+		var(--kai-dim) calc(var(--kai-fill) + 3%)
+	);
+	-webkit-background-clip: text;
+	background-clip: text;
+}
 `,
 );
 
@@ -124,9 +136,10 @@ const processText = (text: Text) => {
 	}
 
 	if (existing?.textContent === romaji) return;
-	const span = existing ?? document.createElement("span");
+	const span = (existing as HTMLElement | undefined) ?? document.createElement("span");
 	span.className = ROMAJI_CLASS;
 	span.textContent = romaji;
+	span.dataset.key = norm(text.data); // which original line it belongs to (for the karaoke fill)
 	if (!existing) parent.appendChild(span);
 };
 
@@ -165,14 +178,90 @@ unloads.add(() => {
 });
 
 // ---------------------------------------------------------------------------
+// Karaoke fill for the romanized line being sung ("below" mode)
+// Tidal's lyrics are timed per line (LRC), not per word: the fill runs across the line's time slot.
+// ---------------------------------------------------------------------------
+
+type Cue = { start: number; end: number; key: string };
+/** Timed lines of the track whose lyrics are loaded */
+let timeline: { trackId: string; cues: Cue[] } | undefined;
+
+const parseLrc = (subtitles: string): Cue[] => {
+	const cues: Omit<Cue, "end">[] = [];
+	for (const line of subtitles.split(/\r?\n/)) {
+		const m = LRC_LINE.exec(line);
+		if (!m) continue;
+		const key = norm(m[3]);
+		for (const tag of m[1].matchAll(/\[(\d+):(\d+(?:[.:]\d+)?)\]/g)) {
+			cues.push({ start: Number(tag[1]) * 60 + Number(tag[2].replace(":", ".")), key });
+		}
+	}
+	cues.sort((a, b) => a.start - b.start);
+	return cues.map((c, i) => ({ ...c, end: cues[i + 1]?.start ?? c.start + 8 }));
+};
+
+/** Seconds the fill takes: the line's time slot, but not the whole instrumental break if there's a long gap */
+const fillDuration = (cue: Cue, romaji: string) => Math.min(cue.end - cue.start, Math.max(1.5, romaji.length / 5 + 1));
+
+let filled: HTMLElement | undefined;
+const clearFill = () => {
+	if (filled === undefined) return;
+	filled.classList.remove("kai-karaoke");
+	filled.style.removeProperty("--kai-fill");
+	filled = undefined;
+};
+
+/** The romanized line on screen for `key`, preferring the one Tidal marks as the active line */
+const spanFor = (key: string): HTMLElement | undefined => {
+	const spans = [...document.querySelectorAll<HTMLElement>(`.${ROMAJI_CLASS}`)].filter((s) => s.dataset.key === key);
+	return spans.find((s) => /_active_|_current_/.test(s.parentElement?.className ?? "")) ?? spans[0];
+};
+
+let currentTrackId: string | undefined;
+let raf = 0;
+const frame = () => {
+	raf = requestAnimationFrame(frame);
+	if (!settings.karaoke || settings.mode !== "below" || timeline === undefined || timeline.trackId !== currentTrackId) return clearFill();
+	if (document.querySelector(`.${ROMAJI_CLASS}`) === null) return clearFill(); // lyrics not on screen
+
+	const t = PlayState.currentTime;
+	const cues = timeline.cues;
+	let i = -1;
+	for (let j = 0; j < cues.length && cues[j].start <= t; j++) i = j;
+	const cue = cues[i];
+	if (cue === undefined) return clearFill();
+
+	const span = spanFor(cue.key);
+	if (span === undefined) return clearFill();
+	if (span !== filled) {
+		clearFill();
+		// Lit = the original line's colour (as bright as the kanji); dim = the same colour, faded
+		const color = getComputedStyle(span.parentElement ?? span).color;
+		span.style.setProperty("--kai-lit", color);
+		span.style.setProperty("--kai-dim", `color-mix(in srgb, ${color} 40%, transparent)`);
+		span.classList.add("kai-karaoke");
+		filled = span;
+	}
+	const progress = Math.max(0, Math.min(1, (t - cue.start) / fillDuration(cue, span.textContent ?? "")));
+	span.style.setProperty("--kai-fill", `${(progress * 106 - 3).toFixed(2)}%`); // -3%..103% so both ends are clean
+};
+raf = requestAnimationFrame(frame);
+unloads.add(() => {
+	cancelAnimationFrame(raf);
+	clearFill();
+});
+
+// ---------------------------------------------------------------------------
 // Wiring
 // ---------------------------------------------------------------------------
 
 /** Fetch + convert the lyrics of a media item so its lines are recognised on screen */
 const prime = async (mediaItem: MediaItem | undefined) => {
 	if (mediaItem === undefined) return;
+	currentTrackId = String(mediaItem.id);
 	const lyrics = await mediaItem.lyrics().catch(() => undefined);
 	if (lyrics === undefined) return;
+	if (lyrics.subtitles) timeline = { trackId: String(mediaItem.id), cues: parseLrc(lyrics.subtitles) };
 	const lang = detectLang(`${lyrics.lyrics ?? ""}\n${lyrics.subtitles ?? ""}`);
 	if (lang === undefined) return;
 	addLines(await convert(lyrics, lang));

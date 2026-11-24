@@ -10,6 +10,7 @@ Plugin de [TidaLuna](https://github.com/Inrixia/TidaLuna) que romaniza las letra
 Ajuste «Cómo mostrar la letra»:
 
 - **Original + romanización** (por defecto): cada línea muestra su romanización en pequeño justo debajo.
+- **Efecto karaoke** (con «Original + romanización»): la romanización de la línea que se canta se va iluminando de izquierda a derecha según el tiempo de la línea (Tidal sincroniza por línea, no por palabra).
 - **Solo romanización**: la letra original se oculta y queda solo la romanizada, a tamaño normal.
 
 Ejemplos:

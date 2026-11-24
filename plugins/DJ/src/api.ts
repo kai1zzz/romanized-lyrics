@@ -3,7 +3,8 @@ import { redux, TidalApi } from "@luna/lib";
 const countryCode = () => redux.store.getState().session.countryCode;
 
 const getJson = async <T>(url: string, accept = "application/json"): Promise<T> => {
-	const res = await fetch(url, { headers: { ...(await TidalApi.getAuthHeaders()), Accept: accept } });
+	// Never wait forever on a request: a stuck one would block the DJ from adding songs
+	const res = await fetch(url, { headers: { ...(await TidalApi.getAuthHeaders()), Accept: accept }, signal: AbortSignal.timeout(10_000) });
 	if (!res.ok) throw new Error(`${res.status} ${res.statusText} ${url}`);
 	return res.json() as Promise<T>;
 };

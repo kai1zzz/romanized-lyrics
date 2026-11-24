@@ -57,8 +57,13 @@ const djPicksAhead = () => {
 };
 
 /** Up to `count` playable tracks similar to `seed` that haven't played and aren't queued */
+/** Rejects if `promise` takes longer than `ms`, so one stuck step can't block the DJ */
+const withTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
+	Promise.race([promise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`timeout: ${label}`)), ms))]);
+
 const findPicks = async (seed: MediaItem, count: number): Promise<MediaItem[]> => {
-	const { ids, errors } = await recommendations(seed.id);
+	const started = Date.now();
+	const { ids, errors } = await withTimeout(recommendations(seed.id), 15_000, "recommendations");
 	if (errors.length > 0) trace.warn("Algunas fuentes de recomendaciones fallaron", errors);
 	if (ids.length === 0) {
 		trace.msg.warn(`El DJ no encontró canciones parecidas a "${seed.tidalItem.title}"`);
@@ -71,9 +76,13 @@ const findPicks = async (seed: MediaItem, count: number): Promise<MediaItem[]> =
 	const pool = ids.filter((id) => !exclude.has(id) && !isSkippedTrack(id)).slice(0, Math.max(count * 5, 15));
 	const picks: MediaItem[] = [];
 	const avoided: MediaItem[] = [];
-	while (picks.length < count && pool.length > 0) {
+	let tries = 0;
+	while (picks.length < count && pool.length > 0 && tries++ < 12) {
 		const [id] = pool.splice(Math.floor(Math.random() * Math.min(pool.length, 6)), 1);
-		const item = await MediaItem.fromId(id).catch(() => undefined);
+		const item = await withTimeout(MediaItem.fromId(id), 8_000, `load ${id}`).catch((err: unknown) => {
+			dbg({ ev: "load-fail", id, err: String(err) });
+			return undefined;
+		});
 		if (item === undefined || item.tidalItem.allowStreaming === false) continue;
 		// Artists you keep skipping go to the back of the line
 		if (isAvoidedArtist(item.tidalItem.artists?.[0]?.id)) avoided.push(item);
@@ -81,6 +90,7 @@ const findPicks = async (seed: MediaItem, count: number): Promise<MediaItem[]> =
 	}
 	// Only fall back to avoided artists if there's nothing else
 	while (picks.length < count && avoided.length > 0) picks.push(avoided.shift()!);
+	dbg({ ev: "picks", seed: seed.id, recs: ids.length, errors, pool: pool.length, tries, picked: picks.map((p) => p.id), ms: Date.now() - started });
 	const seedInfo = infoOf(seed);
 	for (const p of picks) {
 		djPicks.set(String(p.id), seedInfo);
@@ -223,7 +233,13 @@ const queueSnapshot = () => {
 };
 
 let topping: Promise<void> | undefined;
-const topUp = () => (topping ??= doTopUp().finally(() => (topping = undefined)));
+const topUp = () =>
+	(topping ??= withTimeout(doTopUp(), 45_000, "topUp")
+		.catch((err: unknown) => {
+			dbg({ ev: "topup-error", err: String(err) });
+			trace.warn("topUp", err);
+		})
+		.finally(() => (topping = undefined)));
 
 const doTopUp = async () => {
 	if (PlayState.repeatMode !== redux.RepeatMode.Off && !session) return; // queue loops anyway
@@ -389,10 +405,31 @@ const curiousFact = async (item: MediaItem): Promise<string> => {
 	return fact;
 };
 
+/** Seconds the player has been sitting at the very end of a track without moving on */
+let stuckAtEnd = 0;
+let ticksSinceTopUp = 0;
+
 const tick = setInterval(() => {
 	if (now === undefined) return;
 	const pos = PlayState.currentTime;
 	if (pos > 0) now.pos = pos;
+
+	// Watchdog: during a DJ Kai session, if a track reached its end and the player didn't move on, skip forward
+	const q = PlayState.playQueue;
+	if (session && PlayState.playing && now.duration > 0 && pos >= now.duration - 1 && q.currentIndex < q.elements.length - 1) {
+		if (++stuckAtEnd >= 5) {
+			stuckAtEnd = 0;
+			dbg({ ev: "watchdog-next", id: now.id, pos, duration: now.duration });
+			PlayState.next();
+			PlayState.play();
+		}
+	} else stuckAtEnd = 0;
+
+	// Every 15 s during a session, make sure the DJ's picks are lined up (in case a top-up failed or timed out)
+	if (session && ++ticksSinceTopUp >= 15) {
+		ticksSinceTopUp = 0;
+		if (djPicksAhead() < settings.ahead) topUp().catch(() => {});
+	}
 	if (midPlan && !midPlan.done && midPlan.id === now.id && now.pos >= midPlan.at && PlayState.playing && session) {
 		midPlan.done = true;
 		const plan = midPlan;
